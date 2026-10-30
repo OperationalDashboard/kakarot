@@ -13,5 +13,8 @@
   "open_browser_on_start": true,
   "phone_access": true,
   "public_access": true,
-  "pin": ""
+  "pin": "",
+  "smart_model": "qwen3:14b",
+  "browser_visible": false,
+  "approval_wait_seconds": 180
 }

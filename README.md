@@ -18,6 +18,20 @@ you ask it to do.
 | Lal Sobuj trips | "Dhaka to Noakhali tomorrow" (one route) or "Check every rotation for today" (all routes, saved as a CSV in `reports`) |
 | Chats | Every conversation is saved in `data\\kakarot.db`; reopen them from the **Chats** tab |
 
+## Power features
+
+* **Use websites like a person.** Kakarot keeps its own browser open and can click buttons, type in boxes, pick
+  dropdown options and go through multi-page forms. Example: "Open lalsobujbus.com, search Dhaka to Sylhet for
+  tomorrow and list the bus times". Set `"browser_visible": true` in `config.json` to watch it work.
+* **Office files.** "Make an Excel sheet of …", "Write a Word letter …", "Make a PDF report of …". It can also read
+  `.xlsx`, `.csv`, `.docx` and `.pdf` files. Files are saved in `Documents\KakarotWorkspace`.
+* **PC commands, with your OK.** Kakarot can run commands or open files and apps, but first a yellow card appears
+  in the chat with **Approve / Deny**. Nothing runs until you click Approve. Scheduled tasks can never run commands.
+* **🧠 Smart mode.** Tap **Smart** next to the message box for hard jobs. It uses a bigger brain (`qwen3:14b`) and
+  thinks first. It's slower (about 1–3 minutes). Run **`get-smart-brain.bat`** once to download it (about 9 GB).
+
+After updating Kakarot, run **`update.bat`** once to install the new packages.
+
 ## Install (one time, about 15 minutes)
 
 1. **Install Python 3.11+** from https://www.python.org/downloads/

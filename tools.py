@@ -14,6 +14,7 @@ import db
 from config import CFG
 
 TOOLS = {}
+CTX = {"background": False}  # set by the agent for each run
 
 
 def tool(name, description, params=None, required=None):
@@ -122,7 +123,13 @@ def read_file(path):
         text = "\n".join((pg.extract_text() or "") for pg in PdfReader(p).pages)
     elif ext == ".docx":
         import docx
-        text = "\n".join(par.text for par in docx.Document(p).paragraphs)
+        d = docx.Document(p)
+        text = "\n".join(par.text for par in d.paragraphs)
+        for t in d.tables:
+            text += "\n" + "\n".join(" | ".join(c.text for c in r.cells) for r in t.rows)
+    elif ext in (".xlsx", ".xlsm", ".csv"):
+        import office
+        return office.read_excel(path)
     else:
         with open(p, encoding="utf-8", errors="replace") as f:
             text = f.read()
@@ -404,3 +411,9 @@ def cancel_scheduled(job_id):
 @tool("get_time", "Get the current local date and time.")
 def get_time():
     return datetime.datetime.now().strftime("%A %d %B %Y, %H:%M")
+
+
+# ---------------------------------------------------------------- extra abilities (each file adds its own tools)
+import browser_ctl  # noqa: E402,F401  website control: click / type / fill forms
+import office  # noqa: E402,F401       Excel / Word / PDF
+import pctools  # noqa: E402,F401      run commands on the PC (with approval)

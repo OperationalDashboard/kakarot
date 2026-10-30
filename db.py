@@ -42,6 +42,8 @@ def init():
             CREATE TABLE IF NOT EXISTS inbox(id INTEGER PRIMARY KEY, title TEXT, body TEXT,
                                              seen INTEGER DEFAULT 0, created TEXT);
             CREATE TABLE IF NOT EXISTS page_snapshots(url TEXT PRIMARY KEY, text TEXT, checked TEXT);
+            CREATE TABLE IF NOT EXISTS approvals(id INTEGER PRIMARY KEY, kind TEXT, detail TEXT, reason TEXT,
+                                                 status TEXT, created TEXT);
             """)
             # upgrade older databases
             cols = _columns(c, "messages")

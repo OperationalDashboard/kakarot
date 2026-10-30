@@ -15,7 +15,8 @@ _lock = threading.Lock()  # one task at a time so a 16 GB PC isn't overloaded
 log = logging.getLogger("kakarot.agent")
 
 SYSTEM = """You are {name}, a personal assistant running 100% locally on the user's Windows PC.
-You don't just talk - you DO things using your tools: files, web search, web browsing, page monitoring,
+You don't just talk - you DO things using your tools: files, Excel/Word/PDF, web search, reading and
+CONTROLLING websites (click, type, fill forms), running PC commands (with the user's approval),
 notes, reminders, long-term memory and scheduled tasks.
 
 Current local time: {time}
@@ -28,6 +29,13 @@ How to work:
 - Break the request into steps and call tools to actually complete it. Don't just describe what you would do.
 - After each tool result, decide the next step. If a tool fails, read the error and try another way.
 - Never invent facts, prices or web content: look them up with web_search / fetch_page / browse_page.
+- To INTERACT with a website (search forms, dropdowns, buttons, logins, multi-page flows) use web_open, then
+  web_click / web_type / web_select with the element numbers it shows. Re-read with web_read after changes.
+  Never type passwords or payment details unless the user gave them for that exact site in this chat.
+- For spreadsheets/tables use create_excel; for reports/letters use create_word or create_pdf. Save into the
+  workspace and tell the user the file path. Read .xlsx/.csv/.docx/.pdf with read_file.
+- run_command / open_file need the user to click Approve. Use them only when really needed, explain why in
+  'reason', and never run destructive commands (deleting, formatting, registry, shutdown) unless asked.
 - To watch a website for changes use check_page_changes; for "every day/hour..." requests use schedule_task.
 - For "remind me..." use set_reminder. If the user tells you a lasting fact or preference, use remember.
 - Files are never deleted, only moved to _trash with trash_file.
@@ -51,11 +59,28 @@ def _clean(text):
     return re.sub(r"<think>.*?</think>", "", text or "", flags=re.S).strip()
 
 
-def call_model(messages):
-    body = {"model": CFG["model"], "messages": messages, "tools": tools.schemas(), "stream": False,
+def installed_models():
+    try:
+        r = requests.get(CFG["ollama_url"].rstrip("/") + "/api/tags", timeout=5)
+        return [m["name"] for m in r.json().get("models", [])]
+    except Exception:
+        return []
+
+
+def _has(name, names):
+    return name in names or f"{name}:latest" in names
+
+
+def call_model(messages, smart=False):
+    model, ctx, think = CFG["model"], int(CFG.get("context_tokens", 8192)), CFG.get("deep_thinking", False)
+    if smart:  # Smart mode: bigger brain + thinking, slower but better for hard tasks
+        model = CFG.get("smart_model", "qwen3:14b")
+        ctx = int(CFG.get("smart_context_tokens", 12288))
+        think = True
+    body = {"model": model, "messages": messages, "tools": tools.schemas(), "stream": False,
             "keep_alive": CFG.get("keep_model_loaded", "30m"),  # stay in memory -> later replies are fast
-            "options": {"num_ctx": int(CFG.get("context_tokens", 8192)), "temperature": 0.3}}
-    if not CFG.get("deep_thinking", False):
+            "options": {"num_ctx": ctx, "temperature": 0.3}}
+    if not think:
         body["think"] = False  # skip the long hidden "thinking" step: many times faster on a PC
     url = CFG["ollama_url"].rstrip("/") + "/api/chat"
     r = requests.post(url, json=body, timeout=900)
@@ -67,7 +92,7 @@ def call_model(messages):
     return r.json()["message"]
 
 
-def run_agent(user_text, conversation_id=None, background=False, save_history=None):
+def run_agent(user_text, conversation_id=None, background=False, save_history=None, smart=False):
     """Returns (final_reply, steps). steps = list of tool calls made, for showing in the UI.
     With a conversation_id, the user's message is saved immediately and the reply (or error) after."""
     cid = conversation_id
@@ -77,7 +102,7 @@ def run_agent(user_text, conversation_id=None, background=False, save_history=No
         history = [{"role": r["role"], "content": r["content"]} for r in rows if r["role"] in ("user", "assistant")]
         db.add_message(cid, "user", user_text)
     try:
-        final, steps = _run(user_text, history, background)
+        final, steps = _run(user_text, history, background, smart)
     except Exception as e:
         log.exception("agent failed")
         if cid:
@@ -88,14 +113,20 @@ def run_agent(user_text, conversation_id=None, background=False, save_history=No
     return final, steps
 
 
-def _run(user_text, history, background):
+def _run(user_text, history, background, smart=False):
     with _lock:
+        tools.CTX["background"] = background
+        note = ""
+        if smart and not _has(CFG.get("smart_model", "qwen3:14b"), installed_models()):
+            smart = False
+            note = (f"\n\n(Smart mode needs the model {CFG.get('smart_model', 'qwen3:14b')} - run get-smart-brain.bat once. "
+                    "Answered with the normal brain.)")
         msgs = [{"role": "system", "content": _system(background)}] + history + \
                [{"role": "user", "content": user_text}]
 
         steps, final = [], None
         for _ in range(int(CFG.get("max_steps", 12))):
-            m = call_model(msgs)
+            m = call_model(msgs, smart)
             calls = m.get("tool_calls") or []
             msg = {"role": "assistant", "content": m.get("content", "")}
             if calls:
@@ -128,7 +159,7 @@ def _run(user_text, history, background):
             final = "I reached my step limit before finishing. Here's what I did so far - ask me to continue."
         if not final:
             final = "Done." if steps else "(no reply)"
-        return final, steps
+        return final + note, steps
 
 
 def status():

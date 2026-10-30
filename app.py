@@ -31,7 +31,9 @@ def index():
 
 @app.get("/api/status")
 def api_status():
+    smart = CFG.get("smart_model", "qwen3:14b")
     return jsonify({**agent.status(), "name": CFG.get("name", "Kakarot"), "folders": CFG["allowed_folders"],
+                    "smart_model": smart, "smart_ready": agent._has(smart, agent.installed_models()),
                     "remote": not auth.is_trusted_local()})
 
 
@@ -45,7 +47,7 @@ def api_chat():
     if not cid or not db.conversation_exists(cid):
         cid = db.new_conversation()
     try:
-        reply, steps = agent.run_agent(text, conversation_id=cid)
+        reply, steps = agent.run_agent(text, conversation_id=cid, smart=bool(body.get("smart")))
         return jsonify({"reply": reply, "steps": steps, "conversation_id": cid})
     except Exception as e:
         logging.exception("chat failed")
@@ -78,6 +80,18 @@ def api_conversation_rename(cid):
 @app.delete("/api/conversations/<int:cid>")
 def api_conversation_delete(cid):
     db.delete_conversation(cid)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/approvals")
+def api_approvals():
+    return jsonify(db.q("SELECT * FROM approvals WHERE status='pending' ORDER BY id"))
+
+
+@app.post("/api/approvals/<int:aid>")
+def api_approval_answer(aid):
+    ok = bool((request.json or {}).get("approve"))
+    db.x("UPDATE approvals SET status=? WHERE id=? AND status='pending'", ("approved" if ok else "denied", aid))
     return jsonify({"ok": True})
 
 
