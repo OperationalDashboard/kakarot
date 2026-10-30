@@ -21,8 +21,9 @@
   h1{font-size:17px;margin:0}
   #status{font-size:12px;color:var(--muted);margin-left:auto}
   #status.bad{color:var(--warn)}
-  .tabs{display:flex;border-bottom:1px solid var(--line)}
-  .tabs button{flex:1;background:none;border:0;padding:10px 4px;color:var(--muted);cursor:pointer;font:inherit;font-size:13px;border-bottom:2px solid transparent}
+  .tabs{display:flex;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{flex:0 0 auto;background:none;border:0;padding:10px 9px;color:var(--muted);cursor:pointer;font:inherit;font-size:13px;border-bottom:2px solid transparent}
   .tabs button.on{color:var(--ink);border-color:var(--accent)}
   .badge{background:var(--warn);color:#fff;border-radius:10px;font-size:11px;padding:0 6px;margin-left:4px}
   #side{overflow:auto;padding:12px;flex:1}
@@ -66,6 +67,24 @@
   .approve .row{display:flex;gap:8px;margin-top:8px}
   .approve button{border:0;border-radius:10px;padding:8px 16px;font:inherit;font-weight:600;cursor:pointer}
   .approve .yes{background:var(--accent);color:var(--accent-ink)} .approve .no{background:var(--bg);color:var(--ink);border:1px solid var(--line)}
+  #attach{background:var(--bg);color:var(--muted);border:1px solid var(--line);border-radius:12px;padding:0 12px;font-size:17px;cursor:pointer}
+  #files{display:none;flex-wrap:wrap;gap:6px;padding:8px 18px 0;background:var(--panel);border-top:1px solid var(--line)}
+  #files.on{display:flex} #files.on + form{border-top:0}
+  .chip{background:var(--me);border-radius:14px;padding:3px 10px;font-size:12px;display:flex;gap:6px;align-items:center}
+  .chip button{background:none;border:0;color:var(--muted);cursor:pointer;padding:0}
+  .live{max-width:780px;margin:-6px auto 14px;font-size:12.5px;color:var(--muted)}
+  .live div{padding:2px 0} .live .ok{color:var(--accent)} .live .bad{color:var(--warn)}
+  .live .think{font-style:italic;opacity:.8;white-space:pre-wrap;max-height:4.5em;overflow:hidden}
+  .bar{height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin:6px 0}
+  .bar i{display:block;height:100%;background:var(--accent)}
+  .sec{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 6px}
+  .sec:first-child{margin-top:0}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:var(--muted)}
+  .dot.up{background:#2fb36b} .dot.down{background:var(--warn)}
+  .mini{display:flex;gap:6px;margin-top:6px} .mini input,.mini textarea{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;font-size:13px;background:var(--panel);color:var(--ink)}
+  .mini textarea{height:64px;resize:vertical}
+  .btn{background:var(--accent);color:var(--accent-ink);border:0;border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  .card ol{margin:6px 0 0;padding-left:18px} .card li.d{color:var(--accent)}
   #menu{display:none;background:none;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:4px 10px;font-size:16px;cursor:pointer}
   #shade{display:none}
   @media (max-width:800px){
@@ -88,9 +107,11 @@
   <div class="tabs">
     <button data-t="chats" class="on">Chats</button>
     <button data-t="inbox">Inbox<span id="badge"></span></button>
+    <button data-t="missions">Missions</button>
     <button data-t="jobs">Scheduled</button>
     <button data-t="notes">Notes</button>
     <button data-t="memory">Memory</button>
+    <button data-t="status">Status</button>
   </div>
   <div id="side"></div>
 </aside>
@@ -98,7 +119,8 @@
   <div id="shade"></div>
   <header><button id="menu" title="Chats, inbox, schedules, notes">☰<span id="badge2"></span></button><span id="title">Chat</span><span id="status">checking…</span><button class="ghost" id="clear">New chat</button></header>
   <div id="chat"></div>
-  <form id="f"><button type="button" id="smart" title="Smart mode: bigger brain for hard tasks (slower)">🧠 Smart</button><textarea id="t" placeholder="Tell Kakarot what to do…  (Enter to send, Shift+Enter for new line)"></textarea><button id="send">Send</button></form>
+  <div id="files"></div>
+  <form id="f"><input type="file" id="pick" multiple hidden accept="image/*,.pdf,.docx,.xlsx,.xlsm,.csv,.txt,.md"><button type="button" id="attach" title="Attach a photo or file">📎</button><button type="button" id="smart" title="Smart mode: bigger brain for hard tasks (slower)">🧠 Smart</button><textarea id="t" placeholder="Tell Kakarot what to do…  (Enter to send, Shift+Enter for new line)"></textarea><button id="send">Send</button></form>
 </main>
 <script>
 const $ = s => document.querySelector(s);
@@ -113,12 +135,15 @@ const EXAMPLES = [
   "Open lalsobujbus.com, search Dhaka to Sylhet and tell me the times",
   "Write a Word letter to my bank asking for a statement",
   "Remind me in 30 minutes to call the office",
-  "Show my PC's IP address"
+  "Show my PC's IP address",
+  "What do my files say about the bus rent agreement?",
+  "Is lalsobujdata.site up right now?"
 ];
 
 function addMsg(role, text){
   $("#chat").querySelector(".empty")?.remove();
   const d = document.createElement("div"); d.className = "msg " + role;
+  if(role === "user") text = String(text).replace(/\n*\[Attached file: [^\]]*?([^\\/\]]+)\]/g, "\n📎 $1").trim();
   d.innerHTML = `<div class="b">${esc(text)}</div>`; $("#chat").append(d);
   $("#chat").scrollTop = 1e9; return d;
 }
@@ -130,24 +155,69 @@ function addSteps(steps){
   $("#chat").append(d);
 }
 function showEmpty(){
-  $("#chat").innerHTML = `<div class="empty"><h2>What should I do?</h2>I run fully on this PC. I can use websites (click, type, fill forms), make Excel/Word/PDF files, run PC commands with your OK, set reminders and run tasks on a schedule. Turn on 🧠 Smart for hard jobs.<div class="chips">${EXAMPLES.map(e=>`<button>${esc(e)}</button>`).join("")}</div></div>`;
+  $("#chat").innerHTML = `<div class="empty"><h2>What should I do?</h2>I run fully on this PC. I can use websites, make Excel/Word/PDF files, read photos 📎, search inside your documents, run big jobs as background Missions, watch your website and run PC commands with your OK. Turn on 🧠 Smart for hard jobs.<div class="chips">${EXAMPLES.map(e=>`<button>${esc(e)}</button>`).join("")}</div></div>`;
   $("#chat").querySelectorAll(".chips button").forEach(b => b.onclick = () => { $("#t").value = b.textContent; $("#t").focus(); });
 }
 
+const LABEL = {web_open:"Opening website", web_click:"Clicking", web_type:"Typing", web_select:"Choosing an option", web_read:"Reading the page", web_scroll:"Scrolling", web_screenshot:"Taking a screenshot", web_search:"Searching the web", fetch_page:"Reading a page", browse_page:"Opening a page", look_at_image:"Looking at the picture", search_my_files:"Searching your files", index_my_files:"Indexing your files", read_file:"Reading a file", write_file:"Writing a file", create_excel:"Making an Excel file", create_word:"Making a Word file", create_pdf:"Making a PDF", run_command:"Asking to run a command", open_file:"Asking to open a file", lalsobuj_trip_report:"Checking every Lal Sobuj route (about 3 min)", lalsobuj_route_trips:"Checking the route", lalsobuj_morning_brief:"Making the morning brief (about 3 min)", start_mission:"Starting a mission", website_status:"Checking your websites", set_reminder:"Setting a reminder", schedule_task:"Scheduling", remember:"Remembering"};
+const stepText = (tool, args) => { const a = args?.url || args?.path || args?.query || args?.question || args?.goal || args?.text || ""; return (LABEL[tool] || tool) + (a ? ": " + String(a).slice(0, 70) : ""); };
+let attached = [];
+function paintFiles(){
+  $("#files").classList.toggle("on", attached.length > 0);
+  $("#files").innerHTML = attached.map((f, i) => `<span class="chip">📎 ${esc(f.name)}<button data-i="${i}" title="Remove">✕</button></span>`).join("");
+  $("#files").querySelectorAll("button").forEach(b => b.onclick = () => { attached.splice(+b.dataset.i, 1); paintFiles(); });
+}
+$("#attach").onclick = () => $("#pick").click();
+$("#pick").onchange = () => { attached.push(...$("#pick").files); $("#pick").value = ""; paintFiles(); $("#t").focus(); };
+
 async function send(e){
   e?.preventDefault();
-  const text = $("#t").value.trim(); if(!text) return;
-  $("#t").value = ""; addMsg("user", text);
-  const wait = addMsg("assistant", "Working on it…"); wait.querySelector(".b").classList.add("thinking");
+  if($("#send").disabled) return;
+  let text = $("#t").value.trim(); if(!text && !attached.length) return;
+  const files = attached.splice(0); paintFiles();
+  if(!text) text = files.length > 1 ? "Look at the attached files and tell me what's in them." : "Look at the attached file and tell me what's in it.";
+  $("#t").value = ""; addMsg("user", text + (files.length ? "\n📎 " + files.map(f => f.name).join(", ") : ""));
+  const wait = addMsg("assistant", files.length ? "Uploading…" : "Working on it…"); const bub = wait.querySelector(".b"); bub.classList.add("thinking");
+  const live = document.createElement("div"); live.className = "live"; $("#chat").append(live);
   $("#send").disabled = true;
   const ap = setInterval(checkApprovals, 1500);
+  let msg = text, got = false, words = "";
   try{
-    const r = await api("/api/chat", {method:"POST", body:JSON.stringify({message:text, conversation_id: conv, smart: smart})});
-    wait.remove();
-    if(r.conversation_id){ conv = r.conversation_id; store.set("kakarot_conv", conv); }
-    if(r.error){ addMsg("err", r.error + (r.hint ? "\n\n" + r.hint : "")); }
-    else { addMsg("assistant", r.reply); addSteps(r.steps); }
-  }catch(err){ wait.remove(); addMsg("err", "Can't reach Kakarot. Is the black window still open?"); }
+    if(files.length){
+      const fd = new FormData(); files.forEach(f => fd.append("files", f, f.name));
+      const up = await fetch("/api/upload", {method:"POST", body:fd});
+      if(up.status === 401){ location.href = "/login"; return; }
+      const saved = await up.json();
+      msg += "\n\n" + saved.map(f => `[Attached file: ${f.path}]`).join("\n");
+      bub.textContent = "Working on it…";
+    }
+    const res = await fetch("/api/chat/stream", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({message:msg, conversation_id:conv, smart:smart})});
+    if(res.status === 401){ location.href = "/login"; return; }
+    const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "", lastLine = null, thinkEl = null;
+    const handle = ev => {
+      if(ev.type === "start"){ conv = ev.conversation_id; store.set("kakarot_conv", conv); }
+      else if(ev.type === "status"){ bub.textContent = ev.text; }
+      else if(ev.type === "thinking_start"){ words = ""; }
+      else if(ev.type === "thinking"){ if(!thinkEl){ thinkEl = document.createElement("div"); thinkEl.className = "think"; live.prepend(thinkEl); } thinkEl.textContent = ("💭 " + (thinkEl.textContent.slice(2) + ev.text)).slice(-260); }
+      else if(ev.type === "token"){ words += ev.text; bub.classList.remove("thinking"); bub.textContent = words; $("#chat").scrollTop = 1e9; }
+      else if(ev.type === "step_start"){ words = ""; bub.classList.add("thinking"); bub.textContent = "Working on it…"; lastLine = document.createElement("div"); lastLine.textContent = "⏳ " + stepText(ev.tool, ev.args); live.append(lastLine); $("#chat").scrollTop = 1e9; }
+      else if(ev.type === "step_done"){ if(lastLine){ lastLine.textContent = lastLine.textContent.replace("⏳", ev.ok ? "✓" : "✗"); lastLine.className = ev.ok ? "ok" : "bad"; } }
+      else if(ev.type === "done"){ got = true; live.remove(); bub.classList.remove("thinking"); bub.textContent = ev.reply; addSteps(ev.steps); }
+      else if(ev.type === "error"){ got = true; live.remove(); wait.remove(); addMsg("err", ev.error + (ev.hint ? "\n\n" + ev.hint : "")); }
+    };
+    while(true){
+      const {value, done} = await reader.read(); if(done) break;
+      buf += dec.decode(value, {stream:true});
+      let i; while((i = buf.indexOf("\n\n")) >= 0){
+        const block = buf.slice(0, i); buf = buf.slice(i + 2);
+        for(const line of block.split("\n")) if(line.startsWith("data: ")){ try{ handle(JSON.parse(line.slice(6))); }catch(x){} }
+      }
+    }
+    if(!got) throw new Error("cut");
+  }catch(err){
+    live.remove();
+    if(!got){ bub.classList.remove("thinking"); bub.textContent = "The connection dropped, but Kakarot keeps working and saves the answer. Open this chat again in a minute to see it."; wait.className = "msg err"; }
+  }
   clearInterval(ap); document.querySelectorAll(".approve").forEach(e => e.remove());
   $("#send").disabled = false; renderSide(); if(window.innerWidth > 800) $("#t").focus();
 }
@@ -217,6 +287,29 @@ async function renderSide(){
     const notes = await api("/api/notes");
     s.innerHTML = notes.map(n => `<div class="card ${n.done?"done":""}" data-id="${n.id}" style="cursor:pointer">${esc(n.text)}<br><small>#${n.id} · ${esc(n.created)}</small></div>`).join("") || `<small>No notes yet. Click a note to tick it off.</small>`;
     s.querySelectorAll(".card").forEach(c => c.onclick = async () => { await api(`/api/notes/${c.dataset.id}/toggle`, {method:"POST"}); renderSide(); });
+  } else if(tab === "missions"){
+    const ms = await api("/api/missions");
+    const icon = {queued:"⏳", running:"⚙️", done:"✅", failed:"❌", cancelled:"⛔"};
+    const keep = s.querySelector("#goal")?.value || "";
+    s.innerHTML = `<div class="card"><b>New mission</b><small>A big job Kakarot plans and does on its own in the background. The result goes to your Inbox.</small><div class="mini"><textarea id="goal" placeholder="e.g. Compare bus fares Dhaka to Chittagong from 4 companies and make an Excel sheet"></textarea></div><div class="mini"><button class="btn" id="go">Start mission</button></div></div>` +
+      (ms.map(m => { const n = m.plan.length, d = m.done_steps, pct = n ? Math.round(100 * d / n) : (m.status === "done" ? 100 : 3);
+        return `<div class="card">${["queued","running"].includes(m.status) ? `<button class="x" data-id="${m.id}" title="Cancel">✕</button>` : ""}<b>${icon[m.status] || ""} ${esc(m.goal)}</b><small>#${m.id} · ${esc(m.status)} · ${n ? `step ${Math.min(d + (m.status === "running" ? 1 : 0), n)} of ${n}` : "planning…"} · ${esc(m.updated)}</small>${m.status !== "done" ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}${n ? `<details><summary>Plan & step results</summary><ol>${m.plan.map((p, i) => `<li class="${i < d ? "d" : ""}">${esc(p)}${m.log[i] ? `<pre>${esc(m.log[i].result.slice(0, 700))}</pre>` : ""}</li>`).join("")}</ol></details>` : ""}${m.result ? `<pre>${esc(m.result)}</pre>` : ""}</div>`; }).join("") || `<small>No missions yet.</small>`);
+    $("#goal").value = keep;
+    $("#go").onclick = async () => { const g = $("#goal").value.trim(); if(!g) return; $("#goal").value = ""; await api("/api/missions", {method:"POST", body:JSON.stringify({goal:g})}); renderSide(); };
+    s.querySelectorAll(".x").forEach(b => b.onclick = async () => { if(!confirm("Cancel this mission?")) return; await api(`/api/missions/${b.dataset.id}/cancel`, {method:"POST"}); renderSide(); });
+  } else if(tab === "status"){
+    const st = await api("/api/system");
+    const f = st.files, b = st.brief;
+    s.innerHTML = `<div class="sec">Brains</div>` + st.models.map(m => `<div class="card"><span class="dot ${m.ready ? "up" : "down"}"></span><b style="display:inline">${esc(m.role)}</b> <small>${esc(m.name)}${m.ready ? "" : " · not downloaded: run " + esc(m.script)}</small></div>`).join("") +
+      `<div class="sec">Websites watched</div>` + (st.sites.map(x => `<div class="card"><button class="x" data-url="${esc(x.url)}" title="Stop watching">✕</button><b><span class="dot ${x.ok == null ? "" : x.ok ? "up" : "down"}"></span>${esc(x.url)}</b><small>${x.ok == null ? "not checked yet" : x.ok ? `Up since ${esc(x.since)}` : `DOWN: ${esc(x.error)} (since ${esc(x.since)})`}${x.ms != null ? ` · ${x.ms} ms` : ""}${x.uptime24 != null ? ` · 24h uptime ${x.uptime24}%` : ""}${x.cert_days != null ? ` · certificate ${x.cert_days} days left` : ""}</small></div>`).join("") || `<small>No websites watched yet.</small>`) +
+      `<div class="mini"><input id="site" placeholder="https://your-site.com"><button class="btn" id="addsite">Watch</button></div><div class="mini"><button class="ghost" id="checksites">Check now</button><small style="align-self:center">next auto check: ${esc(st.next["sys-watch"] || "-")}</small></div>` +
+      `<div class="sec">Your files</div><div class="card"><b>${f.files} files · ${f.chunks} passages indexed</b><small>${f.with_meaning ? `meaning search on (${f.with_meaning} passages)` : "keyword search only"} · last: ${esc(f.last || "never")}${f.running ? " · indexing now…" : ""}</small>${f.note ? `<pre>${esc(f.note)}</pre>` : ""}<div class="mini"><button class="ghost" id="reindex">Re-index now</button></div></div>` +
+      `<div class="sec">Lal Sobuj morning brief</div><div class="card"><b>${b.enabled ? `Every day at ${esc(b.time)}` : "Turned off"}</b><small>last: ${esc(b.last || "never")} · next: ${esc(st.next["sys-brief"] || "-")}${b.running ? " · running now…" : ""}</small><div class="mini"><button class="ghost" id="brief">Run brief now</button></div></div>`;
+    s.querySelectorAll(".x[data-url]").forEach(x => x.onclick = async () => { await api("/api/sites/remove", {method:"POST", body:JSON.stringify({url:x.dataset.url})}); renderSide(); });
+    $("#addsite").onclick = async () => { const u = $("#site").value.trim(); if(!u) return; $("#addsite").disabled = true; await api("/api/sites", {method:"POST", body:JSON.stringify({url:u})}); renderSide(); };
+    $("#checksites").onclick = async () => { $("#checksites").textContent = "Checking…"; await api("/api/sites/check", {method:"POST"}); renderSide(); };
+    $("#reindex").onclick = async () => { await api("/api/index", {method:"POST"}); $("#reindex").textContent = "Indexing… (refresh in a minute)"; };
+    $("#brief").onclick = async () => { const r = await api("/api/brief", {method:"POST"}); $("#brief").textContent = r.message; };
   } else {
     const mem = await api("/api/memory");
     s.innerHTML = mem.map(m => `<div class="card"><button class="x" data-id="${m.id}" title="Forget">✕</button>${esc(m.fact)}</div>`).join("") || `<small>Things Kakarot remembers about you appear here.</small>`;
@@ -252,6 +345,7 @@ window.addEventListener("focus", () => document.title = "Kakarot");
   const last = store.get("kakarot_conv");
   if(last) await openChat(+last); else showEmpty();
   renderSide(); poll(); setInterval(poll, 15000);
+  setInterval(() => { if(tab === "missions" && !document.activeElement?.closest?.("#side")) renderSide(); }, 6000);
   if(window.Notification && Notification.permission === "default") Notification.requestPermission();
 })();
 </script>
