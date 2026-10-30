@@ -1,0 +1,9 @@
+{
+  "name": "Kakarot",
+  "short_name": "Kakarot",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#121513",
+  "theme_color": "#1f7a5a",
+  "icons": [{"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml"}]
+}
