@@ -111,7 +111,7 @@
     <button data-t="jobs">Scheduled</button>
     <button data-t="notes">Notes</button>
     <button data-t="memory">Memory</button>
-    <button data-t="status">Status</button>
+    <button data-t="status">Status<span id="badge3"></span></button>
   </div>
   <div id="side"></div>
 </aside>
@@ -137,7 +137,9 @@ const EXAMPLES = [
   "Remind me in 30 minutes to call the office",
   "Show my PC's IP address",
   "What do my files say about the bus rent agreement?",
-  "Is lalsobujdata.site up right now?"
+  "Is lalsobujdata.site up right now?",
+  "Write a Python program that reads my sales Excel and makes a monthly chart, and test it",
+  "Build yourself a tool to convert BDT to USD with today's rate"
 ];
 
 function addMsg(role, text){
@@ -155,7 +157,7 @@ function addSteps(steps){
   $("#chat").append(d);
 }
 function showEmpty(){
-  $("#chat").innerHTML = `<div class="empty"><h2>What should I do?</h2>I run fully on this PC. I can use websites, make Excel/Word/PDF files, read photos 📎, search inside your documents, run big jobs as background Missions, watch your website and run PC commands with your OK. Turn on 🧠 Smart for hard jobs.<div class="chips">${EXAMPLES.map(e=>`<button>${esc(e)}</button>`).join("")}</div></div>`;
+  $("#chat").innerHTML = `<div class="empty"><h2>What should I do?</h2>I run fully on this PC. I can use websites, make Excel/Word/PDF files, read photos 📎, search inside your documents, write and test real programs, learn something new every night, run big jobs as background Missions, watch your website and run PC commands with your OK. Turn on 🧠 Smart for hard jobs.<div class="chips">${EXAMPLES.map(e=>`<button>${esc(e)}</button>`).join("")}</div></div>`;
   $("#chat").querySelectorAll(".chips button").forEach(b => b.onclick = () => { $("#t").value = b.textContent; $("#t").focus(); });
 }
 
@@ -231,7 +233,8 @@ async function checkApprovals(){
   for(const a of list){
     if(document.getElementById("ap" + a.id)) continue;
     const d = document.createElement("div"); d.className = "approve"; d.id = "ap" + a.id;
-    d.innerHTML = `<b>⚠️ Kakarot wants to ${a.kind === "open" ? "open this file" : "run this command"} on your PC</b><code>${esc(a.detail)}</code><small>Why: ${esc(a.reason)}</small><div class="row"><button class="yes">Approve</button><button class="no">Deny</button></div>`;
+    if(a.kind === "tool"){ const t = JSON.parse(a.detail); d.innerHTML = `<b>🧩 Kakarot built a new ability: ${esc(t.name)}</b><small>${esc(a.reason)}</small><details><summary>Show the code</summary><code>${esc(t.code)}</code></details><div class="row"><button class="yes">Approve</button><button class="no">Deny</button></div>`; }
+    else d.innerHTML = `<b>⚠️ Kakarot wants to ${a.kind === "open" ? "open this file" : "run this command"} on your PC</b><code>${esc(a.detail)}</code><small>Why: ${esc(a.reason)}</small><div class="row"><button class="yes">Approve</button><button class="no">Deny</button></div>`;
     const answer = async ok => { d.querySelectorAll("button").forEach(b => b.disabled = true); await api("/api/approvals/" + a.id, {method:"POST", body:JSON.stringify({approve: ok})}); d.remove(); };
     d.querySelector(".yes").onclick = () => answer(true);
     d.querySelector(".no").onclick = () => answer(false);
@@ -298,17 +301,28 @@ async function renderSide(){
     $("#go").onclick = async () => { const g = $("#goal").value.trim(); if(!g) return; $("#goal").value = ""; await api("/api/missions", {method:"POST", body:JSON.stringify({goal:g})}); renderSide(); };
     s.querySelectorAll(".x").forEach(b => b.onclick = async () => { if(!confirm("Cancel this mission?")) return; await api(`/api/missions/${b.dataset.id}/cancel`, {method:"POST"}); renderSide(); });
   } else if(tab === "status"){
-    const st = await api("/api/system");
-    const f = st.files, b = st.brief;
+    const [st, su] = await Promise.all([api("/api/system"), api("/api/selfupdate")]);
+    const f = st.files, b = st.brief, v = su.version || {}, lc = su.last_check || {}, tl = su.tools;
     s.innerHTML = `<div class="sec">Brains</div>` + st.models.map(m => `<div class="card"><span class="dot ${m.ready ? "up" : "down"}"></span><b style="display:inline">${esc(m.role)}</b> <small>${esc(m.name)}${m.ready ? "" : " · not downloaded: run " + esc(m.script)}</small></div>`).join("") +
       `<div class="sec">Websites watched</div>` + (st.sites.map(x => `<div class="card"><button class="x" data-url="${esc(x.url)}" title="Stop watching">✕</button><b><span class="dot ${x.ok == null ? "" : x.ok ? "up" : "down"}"></span>${esc(x.url)}</b><small>${x.ok == null ? "not checked yet" : x.ok ? `Up since ${esc(x.since)}` : `DOWN: ${esc(x.error)} (since ${esc(x.since)})`}${x.ms != null ? ` · ${x.ms} ms` : ""}${x.uptime24 != null ? ` · 24h uptime ${x.uptime24}%` : ""}${x.cert_days != null ? ` · certificate ${x.cert_days} days left` : ""}</small></div>`).join("") || `<small>No websites watched yet.</small>`) +
       `<div class="mini"><input id="site" placeholder="https://your-site.com"><button class="btn" id="addsite">Watch</button></div><div class="mini"><button class="ghost" id="checksites">Check now</button><small style="align-self:center">next auto check: ${esc(st.next["sys-watch"] || "-")}</small></div>` +
       `<div class="sec">Your files</div><div class="card"><b>${f.files} files · ${f.chunks} passages indexed</b><small>${f.with_meaning ? `meaning search on (${f.with_meaning} passages)` : "keyword search only"} · last: ${esc(f.last || "never")}${f.running ? " · indexing now…" : ""}</small>${f.note ? `<pre>${esc(f.note)}</pre>` : ""}<div class="mini"><button class="ghost" id="reindex">Re-index now</button></div></div>` +
+      `<div class="sec">Self-improvement</div><div class="card"><b>Version ${esc((v.sha || "").slice(0,7) || "not recorded yet")}</b><small>${esc(v.message || "")}${v.installed ? " · installed " + esc(v.installed) : ""}<br>Auto-install new versions: ${su.settings.auto_update_code ? "on" : "off"} · last check: ${esc(lc.at || "never")} · next: ${esc(su.next["sys-update"] || "-")}</small><div class="mini"><button class="ghost" id="upd">Check for update</button></div></div>` +
+      `<div class="card"><b>Nightly learning</b><small>last: ${esc(su.last_learn || "never")} · next: ${esc(su.next["sys-learn"] || "-")} · brains refresh: ${esc(su.next["sys-models"] || "-")}</small>${su.last_learn_report ? `<details><summary>Last report</summary><pre>${esc(su.last_learn_report)}</pre></details>` : ""}<div class="mini"><button class="ghost" id="learn">Learn now</button></div></div>` +
+      `<div class="card"><b>Lessons I follow (${su.lessons.length})</b>${su.lessons.map(l => `<div style="display:flex;gap:6px;margin-top:4px"><span style="flex:1">• ${esc(l.text)}</span><button class="x lesson" data-id="${l.id}" title="Forget this lesson">✕</button></div>`).join("") || "<small><br>None yet - I learn them every night.</small>"}</div>` +
+      `<div class="sec">New abilities</div>` + tl.pending.map(t => `<div class="card" style="border:2px solid #d9a21b"><b>🧩 ${esc(t.name)} - waiting for your OK</b><small>${esc(t.description)}</small><details><summary>Show the code</summary><pre>${esc(t.code)}</pre></details><div class="mini"><button class="btn tok" data-id="${t.id}">Approve</button><button class="ghost tno" data-id="${t.id}">Deny</button></div></div>`).join("") +
+      (tl.active.map(t => `<div class="card"><button class="x mytool" data-name="${esc(t.name)}" title="Switch off">✕</button><b>🧩 ${esc(t.name)}</b><small>${esc(t.description)}</small></div>`).join("") || (tl.pending.length ? "" : `<small>Abilities Kakarot builds for itself appear here.</small>`)) +
+      `<div class="sec">Coding</div><div class="card"><b>Projects folder</b><small>${esc(su.code_folder)}</small></div>` +
       `<div class="sec">Lal Sobuj morning brief</div><div class="card"><b>${b.enabled ? `Every day at ${esc(b.time)}` : "Turned off"}</b><small>last: ${esc(b.last || "never")} · next: ${esc(st.next["sys-brief"] || "-")}${b.running ? " · running now…" : ""}</small><div class="mini"><button class="ghost" id="brief">Run brief now</button></div></div>`;
     s.querySelectorAll(".x[data-url]").forEach(x => x.onclick = async () => { await api("/api/sites/remove", {method:"POST", body:JSON.stringify({url:x.dataset.url})}); renderSide(); });
     $("#addsite").onclick = async () => { const u = $("#site").value.trim(); if(!u) return; $("#addsite").disabled = true; await api("/api/sites", {method:"POST", body:JSON.stringify({url:u})}); renderSide(); };
     $("#checksites").onclick = async () => { $("#checksites").textContent = "Checking…"; await api("/api/sites/check", {method:"POST"}); renderSide(); };
     $("#reindex").onclick = async () => { await api("/api/index", {method:"POST"}); $("#reindex").textContent = "Indexing… (refresh in a minute)"; };
+    $("#upd").onclick = async () => { $("#upd").textContent = "Checking…"; const r = await api("/api/selfupdate/check", {method:"POST", body:"{}"}); $("#upd").textContent = r.message; };
+    $("#learn").onclick = async () => { const r = await api("/api/selfupdate/learn", {method:"POST"}); $("#learn").textContent = r.message; };
+    s.querySelectorAll(".lesson").forEach(x => x.onclick = async () => { await api("/api/lessons/" + x.dataset.id, {method:"DELETE"}); renderSide(); });
+    s.querySelectorAll(".mytool").forEach(x => x.onclick = async () => { if(!confirm("Switch off this ability?")) return; await api(`/api/mytools/${x.dataset.name}/remove`, {method:"POST"}); renderSide(); });
+    s.querySelectorAll(".tok,.tno").forEach(x => x.onclick = async () => { x.disabled = true; await api("/api/approvals/" + x.dataset.id, {method:"POST", body:JSON.stringify({approve: x.classList.contains("tok")})}); renderSide(); });
     $("#brief").onclick = async () => { const r = await api("/api/brief", {method:"POST"}); $("#brief").textContent = r.message; };
   } else {
     const mem = await api("/api/memory");
@@ -330,6 +344,8 @@ async function poll(){
       if(tab === "inbox") renderSide();
     }
     lastInbox = items.length ? items[0].id : 0;
+    const aps = await api("/api/approvals"); const nt = aps.filter(x => x.kind === "tool").length;
+    $("#badge3").innerHTML = nt ? `<span class="badge">${nt}</span>` : "";
   }catch(e){}
 }
 window.addEventListener("focus", () => document.title = "Kakarot");
