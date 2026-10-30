@@ -425,3 +425,7 @@ import vision  # noqa: E402,F401      see pictures and scanned PDFs
 import knowledge  # noqa: E402,F401   search inside the user's documents
 import missions  # noqa: E402,F401    big background jobs
 import monitor  # noqa: E402,F401     morning brief + website watchdog
+import coder  # noqa: E402,F401      write / run / fix real programs
+import selfupdate  # noqa: E402,F401 nightly learning, new versions, brain refresh
+import plugins  # noqa: E402         abilities Kakarot built for itself (approved by the user)
+plugins.load_all()

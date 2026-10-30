@@ -61,6 +61,8 @@ def init():
                                                    code INTEGER, checked TEXT);
             CREATE INDEX IF NOT EXISTS idx_site_checks ON site_checks(url, checked);
             CREATE TABLE IF NOT EXISTS brief_runs(day TEXT PRIMARY KEY, data TEXT, created TEXT);
+            CREATE TABLE IF NOT EXISTS lessons(id INTEGER PRIMARY KEY, text TEXT, created TEXT);
+            CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT);
             """)
             try:  # keyword search over your files (FTS5 is built into Python's SQLite on Windows)
                 c.execute("CREATE VIRTUAL TABLE IF NOT EXISTS doc_fts USING fts5(text, path UNINDEXED, "
@@ -116,6 +118,15 @@ def tx():
             c.commit()
         finally:
             c.close()
+
+
+def get_kv(key, default=None):
+    r = q("SELECT value FROM kv WHERE key=?", (key,))
+    return json.loads(r[0]["value"]) if r else default
+
+
+def set_kv(key, value):
+    x("INSERT OR REPLACE INTO kv(key, value) VALUES(?,?)", (key, json.dumps(value, ensure_ascii=False)))
 
 
 def add_inbox(title, body):

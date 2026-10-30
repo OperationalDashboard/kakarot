@@ -13,11 +13,14 @@ from werkzeug.utils import secure_filename
 
 import agent
 import auth
+import coder
 import db
 import knowledge
 import missions
 import monitor
+import plugins
 import scheduler
+import selfupdate
 import vision
 from config import BASE, CFG
 
@@ -144,10 +147,12 @@ def api_mission_cancel(mid):
 def api_system():
     names = agent.installed_models()
     want = {"Main brain": CFG["model"], "Smart brain": CFG.get("smart_model", "qwen3:14b"),
-            "Picture brain": vision.vision_model(), "File search": knowledge.embed_model()}
+            "Coding brain": coder.code_model(), "Picture brain": vision.vision_model(),
+            "File search": knowledge.embed_model()}
     last_brief = db.q("SELECT day, created FROM brief_runs ORDER BY day DESC LIMIT 1")
     return jsonify({"models": [{"role": k, "name": v, "ready": agent._has(v, names),
-                                "script": "get-smart-brain.bat" if k == "Smart brain" else "get-advanced-models.bat"}
+                                "script": {"Smart brain": "get-smart-brain.bat", "Coding brain": "get-code-brain.bat"}.get(
+                                    k, "get-advanced-models.bat")}
                                for k, v in want.items()],
                     "sites": monitor.site_report(), "files": knowledge.stats(),
                     "brief": {**monitor.brief_cfg(), "last": last_brief[0]["created"] if last_brief else None,
@@ -188,6 +193,40 @@ def api_brief():
     return jsonify({"message": "Started - the brief appears in the Inbox in about 3 minutes."})
 
 
+@app.get("/api/selfupdate")
+def api_selfupdate():
+    return jsonify({"version": selfupdate.current_version(), "settings": selfupdate.cfg(),
+                    "last_check": db.get_kv("last_update_check"), "last_learn": db.get_kv("last_learn"),
+                    "last_learn_report": db.get_kv("last_learn_report"),
+                    "lessons": db.q("SELECT * FROM lessons ORDER BY id DESC"), "tools": plugins.listing(),
+                    "code_folder": coder.CODE_DIR, "next": scheduler.system_status()})
+
+
+@app.post("/api/selfupdate/check")
+def api_selfupdate_check():
+    try:
+        return jsonify({"message": selfupdate.install_update(force=bool((request.json or {}).get("install")))})
+    except Exception as e:
+        return jsonify({"message": f"Could not check for updates: {e}"})
+
+
+@app.post("/api/selfupdate/learn")
+def api_selfupdate_learn():
+    threading.Thread(target=selfupdate.run_learn_job, daemon=True).start()
+    return jsonify({"message": "Learning from today's chats - the result appears in the Inbox in a few minutes."})
+
+
+@app.delete("/api/lessons/<int:lid>")
+def api_lesson_delete(lid):
+    db.x("DELETE FROM lessons WHERE id=?", (lid,))
+    return jsonify({"ok": True})
+
+
+@app.post("/api/mytools/<name>/remove")
+def api_mytool_remove(name):
+    return jsonify({"message": plugins.remove_my_tool(name)})
+
+
 @app.get("/api/conversations")
 def api_conversations():
     return jsonify(db.list_conversations())
@@ -225,7 +264,15 @@ def api_approvals():
 @app.post("/api/approvals/<int:aid>")
 def api_approval_answer(aid):
     ok = bool((request.json or {}).get("approve"))
+    row = db.q("SELECT * FROM approvals WHERE id=? AND status='pending'", (aid,))
     db.x("UPDATE approvals SET status=? WHERE id=? AND status='pending'", ("approved" if ok else "denied", aid))
+    if row and row[0]["kind"] == "tool":  # a new ability Kakarot built for itself
+        name = json.loads(row[0]["detail"])["name"]
+        try:
+            plugins.activate(name) if ok else plugins.reject(name)
+        except Exception as e:
+            logging.exception("plugin activation failed")
+            return jsonify({"ok": False, "error": str(e)}), 500
     return jsonify({"ok": True})
 
 
@@ -277,6 +324,7 @@ if __name__ == "__main__":
     db.init()
     scheduler.start()
     missions.resume()
+    selfupdate.startup()
     port = int(CFG.get("port", 5050))
     url = f"http://127.0.0.1:{port}"
     name = CFG.get("name", "Kakarot")

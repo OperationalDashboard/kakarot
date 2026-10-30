@@ -19,8 +19,8 @@
   "approval_wait_seconds": 180,
   "vision_model": "qwen2.5vl:3b",
   "embed_model": "nomic-embed-text",
-  "mission_max_steps": 6,
-  "mission_step_actions": 10,
+  "mission_max_steps": 8,
+  "mission_step_actions": 15,
   "daily_brief": {
     "enabled": true,
     "time": "07:00",
@@ -33,5 +33,17 @@
     }
   ],
   "watch_every_minutes": 5,
-  "index_every_hours": 3
+  "index_every_hours": 3,
+  "code_model": "qwen2.5-coder:14b",
+  "code_context_tokens": 16384,
+  "self_update": {
+    "learn_time": "03:30",
+    "update_time": "04:00",
+    "auto_update_code": true,
+    "repo": "OperationalDashboard/kakarot",
+    "branch": "main",
+    "refresh_models_day": "sun",
+    "build_tools": true
+  },
+  "max_lessons": 40
 }

@@ -39,6 +39,19 @@ you ask it to do.
 * **🚌 Lal Sobuj morning brief.** Every day at 07:00, Kakarot checks every route for today and tells you what changed since the last brief: new or stopped routes, trip counts and almost-full trips. The CSV is saved in `reports`. Change the time in `config.json` → `daily_brief`, or tap **Status → Run brief now**.
 * **🛡️ Website watchdog.** Kakarot checks `lalsobujdata.site` every 5 minutes. After 2 failed checks in a row, you get an alert in the Inbox and a Windows pop-up, and another when it's back up. It also warns you 14 days before the HTTPS certificate expires. You can add or remove sites in the **Status** tab.
 
+## Grows by itself
+
+* **🌙 Learns every night (03:30).** Kakarot reads the day's chats and results, saves new facts about you to Memory, and writes short *lessons* it follows from then on (see **Status → Lessons**; ✕ removes one). The report goes to your Inbox. **Status → Learn now** runs it immediately.
+* **⬆️ Installs new versions by itself (04:00 and after every start).** It checks the GitHub repo in `config.json` → `self_update.repo`. If there's a newer version, it backs up the current files to `data\backups`, installs the new version, adds any new settings (your own settings are never changed), installs new packages and restarts when it isn't busy. If the new version doesn't start, `start.bat` puts the previous version back and skips that version. Set `"auto_update_code": false` to only get a notice.
+* **🧠 Refreshes its brains weekly (Sunday 05:00).** It downloads newer versions of the models you already have.
+* **🧩 Builds its own new abilities.** When it notices something it couldn't do (or when you say "build yourself a tool to …"), its coding brain writes a new tool, tests that it loads, and puts it in **Status → New abilities**. Nothing new runs until you tap **Approve**. Switch abilities off there any time.
+
+## Writes real code
+
+Ask for any program: "Write a Python script that merges all Excel files in a folder and test it", "Make a small website for my bus counter", "Write a Telegram bot that…". Kakarot creates a project in `Documents\KakarotWorkspace\code\<project>`. Its **coding brain** (`qwen2.5-coder:14b`) writes each file, then Kakarot runs the code and the tests, reads the errors and fixes them until it works. Each project gets its own Python environment (`.venv`), so packages never affect Kakarot.
+
+Code runs **freely inside the code folder** (you chose this). Commands that touch other folders or change Windows settings are blocked. A program Kakarot writes can still do anything a program can, so read what it built before using it for important things. Run **`get-code-brain.bat`** once to download the coding brain (about 9 GB). Big apps work best as a Mission.
+
 Run **`get-advanced-models.bat`** once to download the picture brain (about 3 GB) and the file search brain (about 300 MB).
 
 After updating Kakarot, run **`update.bat`** once to install the new packages.
@@ -140,6 +153,8 @@ Double-click **`add-to-startup.bat`** once. To undo it, run **`remove-from-start
 |---|---|
 | "picture brain isn't downloaded" | Run `get-advanced-models.bat`. |
 | File search says "keyword search only" | Run `get-advanced-models.bat`, then **Status → Re-index now**. |
+| Coding is slow | The 14B coding brain writes about one file per 1–3 minutes on this PC. For quicker, simpler code set `code_model` to `qwen2.5-coder:7b` and run `get-code-brain.bat`. |
+| Kakarot keeps restarting after an update | Close the window, run `start.bat`; if it still fails, copy the files from the newest `data\backups` folder back. |
 | Pictures are slow | Reading a picture takes about 30–90 seconds on a PC without a graphics card. Use a cropped photo for faster results. |
 | Top bar says *"Ollama isn't running"* | Open the Ollama app from the Start menu. |
 | *"Model not downloaded"* | Open Command Prompt and run `ollama pull qwen3:8b`. |

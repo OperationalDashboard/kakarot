@@ -114,11 +114,21 @@ def system_jobs():
     sched.add_job(_safe(knowledge.index_files), IntervalTrigger(hours=int(CFG.get("index_every_hours", 3))),
                   id="sys-index", replace_existing=True,
                   next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=90))
+    import selfupdate
+    su = selfupdate.cfg()
+    lh, lm = (su["learn_time"].split(":") + ["0"])[:2]
+    sched.add_job(_safe(selfupdate.run_learn_job), CronTrigger(hour=int(lh), minute=int(lm)), id="sys-learn",
+                  replace_existing=True, misfire_grace_time=6 * 3600)
+    uh, um = (su["update_time"].split(":") + ["0"])[:2]
+    sched.add_job(_safe(selfupdate.run_update_job), CronTrigger(hour=int(uh), minute=int(um)), id="sys-update",
+                  replace_existing=True, misfire_grace_time=6 * 3600)
+    sched.add_job(_safe(selfupdate.refresh_models), CronTrigger(day_of_week=su["refresh_models_day"], hour=5, minute=0),
+                  id="sys-models", replace_existing=True, misfire_grace_time=12 * 3600)
 
 
 def system_status():
     out = {}
-    for jid in ("sys-brief", "sys-watch", "sys-index"):
+    for jid in ("sys-brief", "sys-watch", "sys-index", "sys-learn", "sys-update", "sys-models"):
         job = sched.get_job(jid)
         out[jid] = job.next_run_time.strftime("%a %d %b %H:%M") if job and job.next_run_time else None
     return out

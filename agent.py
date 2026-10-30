@@ -12,6 +12,7 @@ import tools
 from config import CFG
 
 _lock = threading.Lock()  # one task at a time so a 16 GB PC isn't overloaded
+_tls = threading.local()  # marks "this thread is already inside a task"
 log = logging.getLogger("kakarot.agent")
 
 SYSTEM = """You are {name}, a personal assistant running 100% locally on the user's Windows PC.
@@ -25,6 +26,9 @@ Folders you may work in: {folders}  (relative paths go into the first one)
 
 Things you remember about the user:
 {memory}
+
+Lessons you learned from past work (follow them):
+{lessons}
 
 How to work:
 - Break the request into steps and call tools to actually complete it. Don't just describe what you would do.
@@ -44,6 +48,11 @@ How to work:
 - Big jobs that need many steps (research + compare + make a report, check many things): offer or use start_mission,
   which works on it in the background and puts the result in the Inbox.
 - Website health: website_status shows whether watched sites are up; watch_website adds one.
+- CODING (programs, scripts, websites, bots, data processing): code_new_project, then write_code for each file with
+  DETAILED instructions (your coding brain writes the code), run_code to run it / its tests, read the errors, fix with
+  edit_code (include the exact error), and repeat until it works. Add tests for non-trivial logic (pytest). Tell the
+  user the project folder and how to run it. Very large apps: use start_mission so it can work for longer.
+- If you need an ability you don't have and it would be useful again, use build_new_tool (the user approves it).
 - For "remind me..." use set_reminder. If the user tells you a lasting fact or preference, use remember.
 - Files are never deleted, only moved to _trash with trash_file.
 - When finished, reply briefly and clearly with what you did and the result. Reply in the user's language.
@@ -57,9 +66,18 @@ def _system(background):
         time=datetime.datetime.now().strftime("%A %d %B %Y, %H:%M"),
         folders=", ".join(CFG["allowed_folders"]),
         memory="\n".join(f"- {m['fact']}" for m in mem) or "(nothing yet)",
+        lessons=_lessons() or "(none yet)",
         extra="- This is a scheduled background run: nobody is watching. Finish the task fully and give a "
               "short report. Do not create new schedules." if background else "",
     )
+
+
+def _lessons():
+    try:
+        import selfupdate
+        return selfupdate.lessons_text()
+    except Exception:
+        return ""
 
 
 def _clean(text):
@@ -157,6 +175,7 @@ def _run(user_text, history, background, smart=False, on_event=None, extra_syste
     if not _lock.acquire(blocking=False):
         _emit(on_event, type="status", text="Waiting - Kakarot is finishing another job (a mission or schedule)…")
         _lock.acquire()
+    _tls.inside = True
     try:
         tools.CTX["background"] = background
         note = ""
@@ -209,14 +228,18 @@ def _run(user_text, history, background, smart=False, on_event=None, extra_syste
             final = "Done." if steps else "(no reply)"
         return final + note, steps
     finally:
+        _tls.inside = False
         _lock.release()
 
 
-def think_once(prompt, system="", fmt=None):
-    """A single answer with no tools (used for planning and summaries). Waits its turn like any job."""
+def think_once(prompt, system="", fmt=None, smart=False):
+    """A single answer with no tools (used for planning, summaries, learning). Waits its turn like any job,
+    unless it's called from inside a running task (then it just answers)."""
+    msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
+    if getattr(_tls, "inside", False):
+        return _clean(call_model(msgs, smart=smart, use_tools=False, fmt=fmt).get("content", ""))
     with _lock:
-        msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
-        return _clean(call_model(msgs, use_tools=False, fmt=fmt).get("content", ""))
+        return _clean(call_model(msgs, smart=smart, use_tools=False, fmt=fmt).get("content", ""))
 
 
 def status():
