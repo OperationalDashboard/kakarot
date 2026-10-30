@@ -1,7 +1,9 @@
 """Kakarot's database (SQLite file: data/kakarot.db). Everything is saved on this PC."""
+import contextlib
 import datetime
 import json
 import os
+import re
 import sqlite3
 import threading
 
@@ -44,7 +46,27 @@ def init():
             CREATE TABLE IF NOT EXISTS page_snapshots(url TEXT PRIMARY KEY, text TEXT, checked TEXT);
             CREATE TABLE IF NOT EXISTS approvals(id INTEGER PRIMARY KEY, kind TEXT, detail TEXT, reason TEXT,
                                                  status TEXT, created TEXT);
+            CREATE TABLE IF NOT EXISTS missions(id INTEGER PRIMARY KEY, goal TEXT, status TEXT, plan TEXT,
+                                                log TEXT, result TEXT, created TEXT, updated TEXT);
+            CREATE TABLE IF NOT EXISTS doc_files(path TEXT PRIMARY KEY, mtime REAL, size INTEGER,
+                                                 chunks INTEGER, indexed TEXT);
+            CREATE TABLE IF NOT EXISTS doc_chunks(id INTEGER PRIMARY KEY, path TEXT, chunk_no INTEGER,
+                                                  text TEXT, emb BLOB);
+            CREATE INDEX IF NOT EXISTS idx_chunk_path ON doc_chunks(path);
+            CREATE TABLE IF NOT EXISTS watch_sites(url TEXT PRIMARY KEY, must_contain TEXT, added TEXT);
+            CREATE TABLE IF NOT EXISTS site_state(url TEXT PRIMARY KEY, ok INTEGER, since TEXT, checked TEXT,
+                                                  ms INTEGER, code INTEGER, error TEXT, fails INTEGER DEFAULT 0,
+                                                  alerted INTEGER DEFAULT 0, cert_days INTEGER, cert_checked TEXT);
+            CREATE TABLE IF NOT EXISTS site_checks(id INTEGER PRIMARY KEY, url TEXT, ok INTEGER, ms INTEGER,
+                                                   code INTEGER, checked TEXT);
+            CREATE INDEX IF NOT EXISTS idx_site_checks ON site_checks(url, checked);
+            CREATE TABLE IF NOT EXISTS brief_runs(day TEXT PRIMARY KEY, data TEXT, created TEXT);
             """)
+            try:  # keyword search over your files (FTS5 is built into Python's SQLite on Windows)
+                c.execute("CREATE VIRTUAL TABLE IF NOT EXISTS doc_fts USING fts5(text, path UNINDEXED, "
+                          "chunk_id UNINDEXED)")
+            except sqlite3.OperationalError:
+                pass
             # upgrade older databases
             cols = _columns(c, "messages")
             if "conversation_id" not in cols:
@@ -84,6 +106,18 @@ def x(sql, args=()):
             c.close()
 
 
+@contextlib.contextmanager
+def tx():
+    """One connection + one commit for many writes (much faster for bulk work)."""
+    with _lock:
+        c = _conn()
+        try:
+            yield c
+            c.commit()
+        finally:
+            c.close()
+
+
 def add_inbox(title, body):
     return x("INSERT INTO inbox(title, body, created) VALUES(?,?,?)", (title, body, now()))
 
@@ -109,7 +143,7 @@ def add_message(cid, role, content, steps=None):
     x("UPDATE conversations SET updated=? WHERE id=?", (now(), cid))
     if role == "user":  # name the chat after its first message
         x("UPDATE conversations SET title=? WHERE id=? AND title='New chat'",
-          (content.strip().replace("\n", " ")[:60] or "New chat", cid))
+          (re.sub(r"\s*\[Attached file: [^\]]*\]", " 📎", content).strip().replace("\n", " ")[:60] or "New chat", cid))
     return mid
 
 

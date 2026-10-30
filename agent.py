@@ -16,7 +16,8 @@ log = logging.getLogger("kakarot.agent")
 
 SYSTEM = """You are {name}, a personal assistant running 100% locally on the user's Windows PC.
 You don't just talk - you DO things using your tools: files, Excel/Word/PDF, web search, reading and
-CONTROLLING websites (click, type, fill forms), running PC commands (with the user's approval),
+CONTROLLING websites (click, type, fill forms), running PC commands (with the user's approval), seeing
+pictures, searching inside the user's own documents, background missions, website monitoring,
 notes, reminders, long-term memory and scheduled tasks.
 
 Current local time: {time}
@@ -37,6 +38,12 @@ How to work:
 - run_command / open_file need the user to click Approve. Use them only when really needed, explain why in
   'reason', and never run destructive commands (deleting, formatting, registry, shutdown) unless asked.
 - To watch a website for changes use check_page_changes; for "every day/hour..." requests use schedule_task.
+- You can SEE: for an attached picture, photo, screenshot or scanned PDF, call look_at_image with a clear question.
+- You KNOW the user's files: when they ask about something that might be in their documents, call search_my_files
+  first and answer from the passages, naming the files. Attached documents: read_file (or look_at_image if scanned).
+- Big jobs that need many steps (research + compare + make a report, check many things): offer or use start_mission,
+  which works on it in the background and puts the result in the Inbox.
+- Website health: website_status shows whether watched sites are up; watch_website adds one.
 - For "remind me..." use set_reminder. If the user tells you a lasting fact or preference, use remember.
 - Files are never deleted, only moved to _trash with trash_file.
 - When finished, reply briefly and clearly with what you did and the result. Reply in the user's language.
@@ -71,30 +78,55 @@ def _has(name, names):
     return name in names or f"{name}:latest" in names
 
 
-def call_model(messages, smart=False):
+def call_model(messages, smart=False, on_event=None, use_tools=True, fmt=None):
+    """One model turn. With on_event, the reply is streamed: on_event({'type':'token'|'thinking','text':...})."""
     model, ctx, think = CFG["model"], int(CFG.get("context_tokens", 8192)), CFG.get("deep_thinking", False)
     if smart:  # Smart mode: bigger brain + thinking, slower but better for hard tasks
         model = CFG.get("smart_model", "qwen3:14b")
         ctx = int(CFG.get("smart_context_tokens", 12288))
         think = True
-    body = {"model": model, "messages": messages, "tools": tools.schemas(), "stream": False,
+    body = {"model": model, "messages": messages, "stream": bool(on_event),
             "keep_alive": CFG.get("keep_model_loaded", "30m"),  # stay in memory -> later replies are fast
             "options": {"num_ctx": ctx, "temperature": 0.3}}
+    if use_tools:
+        body["tools"] = tools.schemas()
+    if fmt:
+        body["format"] = fmt
     if not think:
         body["think"] = False  # skip the long hidden "thinking" step: many times faster on a PC
     url = CFG["ollama_url"].rstrip("/") + "/api/chat"
-    r = requests.post(url, json=body, timeout=900)
+    r = requests.post(url, json=body, timeout=900, stream=bool(on_event))
     if r.status_code == 400 and "think" in r.text.lower():  # older Ollama / model without think support
         body.pop("think", None)
-        r = requests.post(url, json=body, timeout=900)
+        r = requests.post(url, json=body, timeout=900, stream=bool(on_event))
     if r.status_code != 200:
         raise RuntimeError(f"Ollama error {r.status_code}: {r.text[:300]}")
-    return r.json()["message"]
+    if not on_event:
+        return r.json()["message"]
+    content, calls = [], []
+    for line in r.iter_lines():
+        if not line:
+            continue
+        chunk = json.loads(line)
+        if chunk.get("error"):
+            raise RuntimeError(f"Ollama error: {chunk['error']}")
+        m = chunk.get("message") or {}
+        if m.get("thinking"):
+            on_event({"type": "thinking", "text": m["thinking"]})
+        if m.get("content"):
+            content.append(m["content"])
+            on_event({"type": "token", "text": m["content"]})
+        calls += m.get("tool_calls") or []
+        if chunk.get("done"):
+            break
+    return {"role": "assistant", "content": "".join(content), "tool_calls": calls}
 
 
-def run_agent(user_text, conversation_id=None, background=False, save_history=None, smart=False):
+def run_agent(user_text, conversation_id=None, background=False, save_history=None, smart=False, on_event=None,
+              extra_system="", max_steps=None):
     """Returns (final_reply, steps). steps = list of tool calls made, for showing in the UI.
-    With a conversation_id, the user's message is saved immediately and the reply (or error) after."""
+    With a conversation_id, the user's message is saved immediately and the reply (or error) after.
+    on_event(dict) receives live progress (tokens, tool start/finish) for streaming to the chat page."""
     cid = conversation_id
     history = []
     if cid:
@@ -102,7 +134,7 @@ def run_agent(user_text, conversation_id=None, background=False, save_history=No
         history = [{"role": r["role"], "content": r["content"]} for r in rows if r["role"] in ("user", "assistant")]
         db.add_message(cid, "user", user_text)
     try:
-        final, steps = _run(user_text, history, background, smart)
+        final, steps = _run(user_text, history, background, smart, on_event, extra_system, max_steps)
     except Exception as e:
         log.exception("agent failed")
         if cid:
@@ -113,20 +145,32 @@ def run_agent(user_text, conversation_id=None, background=False, save_history=No
     return final, steps
 
 
-def _run(user_text, history, background, smart=False):
-    with _lock:
+def _emit(on_event, **ev):
+    if on_event:
+        try:
+            on_event(ev)
+        except Exception:
+            pass
+
+
+def _run(user_text, history, background, smart=False, on_event=None, extra_system="", max_steps=None):
+    if not _lock.acquire(blocking=False):
+        _emit(on_event, type="status", text="Waiting - Kakarot is finishing another job (a mission or schedule)…")
+        _lock.acquire()
+    try:
         tools.CTX["background"] = background
         note = ""
         if smart and not _has(CFG.get("smart_model", "qwen3:14b"), installed_models()):
             smart = False
             note = (f"\n\n(Smart mode needs the model {CFG.get('smart_model', 'qwen3:14b')} - run get-smart-brain.bat once. "
                     "Answered with the normal brain.)")
-        msgs = [{"role": "system", "content": _system(background)}] + history + \
-               [{"role": "user", "content": user_text}]
+        system = _system(background) + ("\n" + extra_system if extra_system else "")
+        msgs = [{"role": "system", "content": system}] + history + [{"role": "user", "content": user_text}]
 
         steps, final = [], None
-        for _ in range(int(CFG.get("max_steps", 12))):
-            m = call_model(msgs, smart)
+        for _ in range(int(max_steps or CFG.get("max_steps", 12))):
+            _emit(on_event, type="thinking_start")
+            m = call_model(msgs, smart, on_event)
             calls = m.get("tool_calls") or []
             msg = {"role": "assistant", "content": m.get("content", "")}
             if calls:
@@ -143,11 +187,15 @@ def _run(user_text, history, background, smart=False):
                         args = json.loads(args)
                     except json.JSONDecodeError:
                         args = {}
-                if background and name == "schedule_task":
-                    result = "Error: scheduled runs can't create new schedules."
+                _emit(on_event, type="step_start", tool=name, args=args)
+                if background and name in ("schedule_task", "start_mission"):
+                    result = f"Error: background runs can't use {name}."
                 else:
                     result = tools.execute(name, args)
-                if result.startswith("[[DIRECT]]"):  # finished report: give it to the user as-is (no slow retyping)
+                direct = result.startswith("[[DIRECT]]")
+                _emit(on_event, type="step_done", tool=name,
+                      result="(report ready)" if direct else result[:300], ok=not result.startswith("Error"))
+                if direct:  # finished report: give it to the user as-is (no slow retyping)
                     final = result[len("[[DIRECT]]"):].strip()
                     steps.append({"tool": name, "args": args, "result": "(report shown above)"})
                     break
@@ -160,6 +208,15 @@ def _run(user_text, history, background, smart=False):
         if not final:
             final = "Done." if steps else "(no reply)"
         return final + note, steps
+    finally:
+        _lock.release()
+
+
+def think_once(prompt, system="", fmt=None):
+    """A single answer with no tools (used for planning and summaries). Waits its turn like any job."""
+    with _lock:
+        msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
+        return _clean(call_model(msgs, use_tools=False, fmt=fmt).get("content", ""))
 
 
 def status():

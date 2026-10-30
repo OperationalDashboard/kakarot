@@ -30,6 +30,17 @@ you ask it to do.
 * **🧠 Smart mode.** Tap **Smart** next to the message box for hard jobs. It uses a bigger brain (`qwen3:14b`) and
   thinks first. It's slower (about 1–3 minutes). Run **`get-smart-brain.bat`** once to download it (about 9 GB).
 
+## Advanced features
+
+* **📎 Sees pictures.** Tap 📎 next to the message box to attach a photo (on the phone it can open the camera), a screenshot, a scanned PDF, or a Word/Excel/PDF file. Then ask, for example, "What is the total on this receipt?" or "Read this ticket". Pictures are read by a local picture brain (`qwen2.5vl:3b`).
+* **📂 Knows your files.** Kakarot indexes the documents in your allowed folders (Word, PDF, Excel, text) every 3 hours. Ask "What does my rent agreement say about payment?" and it finds the right passages and names the files. Use **Status → Re-index now** after adding many files.
+* **⚡ Live replies.** Answers appear word by word, and you can watch each action as it happens (✓ when done). If your phone loses the connection, Kakarot keeps working and saves the answer in the chat.
+* **🎯 Missions.** For big jobs, open the **Missions** tab (or say "do this as a mission"). Kakarot makes a plan, does each step on its own in the background and puts the final report in your **Inbox**. You can keep chatting meanwhile. A mission continues after a restart.
+* **🚌 Lal Sobuj morning brief.** Every day at 07:00, Kakarot checks every route for today and tells you what changed since the last brief: new or stopped routes, trip counts and almost-full trips. The CSV is saved in `reports`. Change the time in `config.json` → `daily_brief`, or tap **Status → Run brief now**.
+* **🛡️ Website watchdog.** Kakarot checks `lalsobujdata.site` every 5 minutes. After 2 failed checks in a row, you get an alert in the Inbox and a Windows pop-up, and another when it's back up. It also warns you 14 days before the HTTPS certificate expires. You can add or remove sites in the **Status** tab.
+
+Run **`get-advanced-models.bat`** once to download the picture brain (about 3 GB) and the file search brain (about 300 MB).
+
 After updating Kakarot, run **`update.bat`** once to install the new packages.
 
 ## Install (one time, about 15 minutes)
@@ -111,7 +122,7 @@ Double-click **`add-to-startup.bat`** once. To undo it, run **`remove-from-start
 
 * It only reads or writes inside `allowed_folders`.
 * It never deletes. "Delete" moves files to `_trash` inside the workspace.
-* It cannot run programs or system commands.
+* It runs PC commands or opens files **only after you click Approve**. Scheduled jobs and missions can never run commands.
 * Other devices (like your phone) need the PIN. Turn this off with `"phone_access": false`.
 * Everything (chats, memory, notes, schedules) stays in `data\kakarot.db` on your PC.
 
@@ -127,6 +138,9 @@ Double-click **`add-to-startup.bat`** once. To undo it, run **`remove-from-start
 
 | Problem | Fix |
 |---|---|
+| "picture brain isn't downloaded" | Run `get-advanced-models.bat`. |
+| File search says "keyword search only" | Run `get-advanced-models.bat`, then **Status → Re-index now**. |
+| Pictures are slow | Reading a picture takes about 30–90 seconds on a PC without a graphics card. Use a cropped photo for faster results. |
 | Top bar says *"Ollama isn't running"* | Open the Ollama app from the Start menu. |
 | *"Model not downloaded"* | Open Command Prompt and run `ollama pull qwen3:8b`. |
 | Phone link doesn't open | Is the PC on and is the Kakarot window open? Run `go-online.bat` again to see the status. |

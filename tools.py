@@ -121,6 +121,8 @@ def read_file(path):
     if ext == ".pdf":
         from pypdf import PdfReader
         text = "\n".join((pg.extract_text() or "") for pg in PdfReader(p).pages)
+        if len(text.strip()) < 40:
+            return "This PDF has no readable text (it's probably scanned). Use look_at_image on it to read it."
     elif ext == ".docx":
         import docx
         d = docx.Document(p)
@@ -130,6 +132,8 @@ def read_file(path):
     elif ext in (".xlsx", ".xlsm", ".csv"):
         import office
         return office.read_excel(path)
+    elif ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"):
+        return "This is a picture - use look_at_image to see it."
     else:
         with open(p, encoding="utf-8", errors="replace") as f:
             text = f.read()
@@ -417,3 +421,7 @@ def get_time():
 import browser_ctl  # noqa: E402,F401  website control: click / type / fill forms
 import office  # noqa: E402,F401       Excel / Word / PDF
 import pctools  # noqa: E402,F401      run commands on the PC (with approval)
+import vision  # noqa: E402,F401      see pictures and scanned PDFs
+import knowledge  # noqa: E402,F401   search inside the user's documents
+import missions  # noqa: E402,F401    big background jobs
+import monitor  # noqa: E402,F401     morning brief + website watchdog

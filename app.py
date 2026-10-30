@@ -1,16 +1,24 @@
 """Start Kakarot: python app.py  ->  open http://127.0.0.1:5050"""
+import datetime
+import json
 import logging
 import logging.handlers
 import os
+import queue
 import threading
 import webbrowser
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
+from werkzeug.utils import secure_filename
 
 import agent
 import auth
 import db
+import knowledge
+import missions
+import monitor
 import scheduler
+import vision
 from config import BASE, CFG
 
 os.makedirs(os.path.join(BASE, "data"), exist_ok=True)
@@ -19,6 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)
     logging.handlers.RotatingFileHandler(os.path.join(BASE, "data", "kakarot.log"),
                                          maxBytes=2_000_000, backupCount=2, encoding="utf-8")])
 app = Flask(__name__, static_folder=os.path.join(BASE, "static"))
+app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024  # attachments up to 40 MB
 PHONE = bool(CFG.get("phone_access", False) or CFG.get("public_access", False))
 PIN = auth.register(app) if PHONE else None
 db.init()  # create/upgrade the database before any request
@@ -52,6 +61,131 @@ def api_chat():
     except Exception as e:
         logging.exception("chat failed")
         return jsonify({"error": str(e), "hint": agent.status().get("hint", ""), "conversation_id": cid}), 500
+
+
+@app.post("/api/chat/stream")
+def api_chat_stream():
+    """Same as /api/chat but sends live progress (Server-Sent Events): words as they're written + each action."""
+    body = request.json or {}
+    text = body.get("message", "").strip()
+    if not text:
+        return jsonify({"error": "empty message"}), 400
+    cid = body.get("conversation_id")
+    if not cid or not db.conversation_exists(cid):
+        cid = db.new_conversation()
+    events = queue.Queue()
+
+    def work():
+        try:
+            reply, steps = agent.run_agent(text, conversation_id=cid, smart=bool(body.get("smart")),
+                                           on_event=events.put)
+            events.put({"type": "done", "reply": reply, "steps": steps, "conversation_id": cid})
+        except Exception as e:
+            logging.exception("chat failed")
+            events.put({"type": "error", "error": str(e), "hint": agent.status().get("hint", ""),
+                        "conversation_id": cid})
+
+    threading.Thread(target=work, daemon=True).start()  # keeps going (and saves the reply) even if the page closes
+
+    def gen():
+        yield "data: " + json.dumps({"type": "start", "conversation_id": cid}) + "\n\n"
+        while True:
+            try:
+                ev = events.get(timeout=10)
+            except queue.Empty:
+                yield ": ping\n\n"  # keeps phone/tunnel connections open during long steps
+                continue
+            yield "data: " + json.dumps(ev, ensure_ascii=False, default=str) + "\n\n"
+            if ev["type"] in ("done", "error"):
+                break
+
+    return Response(stream_with_context(gen()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/upload")
+def api_upload():
+    """Attach files from the chat (photos from the phone camera, PDFs, Word, Excel...). Saved in workspace/uploads."""
+    folder = os.path.join(CFG["allowed_folders"][0], "uploads")
+    os.makedirs(folder, exist_ok=True)
+    saved = []
+    for f in request.files.getlist("files")[:10]:
+        stem, ext = os.path.splitext(f.filename or "")
+        ext = secure_filename(ext.lstrip(".")).lower()
+        if not ext and f.mimetype and "/" in f.mimetype:
+            ext = f.mimetype.split("/")[1].replace("jpeg", "jpg")[:5]
+        name = (secure_filename(stem) or "file")[:60] + ("." + ext if ext else "")
+        path = os.path.join(folder, datetime.datetime.now().strftime("%Y%m%d-%H%M%S-") + name)
+        f.save(path)
+        saved.append({"name": f.filename, "path": path})
+    return jsonify(saved)
+
+
+@app.get("/api/missions")
+def api_missions():
+    return jsonify(missions.list_missions())
+
+
+@app.post("/api/missions")
+def api_mission_new():
+    goal = (request.json or {}).get("goal", "").strip()
+    if not goal:
+        return jsonify({"error": "empty goal"}), 400
+    return jsonify({"id": missions.start(goal)})
+
+
+@app.post("/api/missions/<int:mid>/cancel")
+def api_mission_cancel(mid):
+    missions.cancel(mid)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/system")
+def api_system():
+    names = agent.installed_models()
+    want = {"Main brain": CFG["model"], "Smart brain": CFG.get("smart_model", "qwen3:14b"),
+            "Picture brain": vision.vision_model(), "File search": knowledge.embed_model()}
+    last_brief = db.q("SELECT day, created FROM brief_runs ORDER BY day DESC LIMIT 1")
+    return jsonify({"models": [{"role": k, "name": v, "ready": agent._has(v, names),
+                                "script": "get-smart-brain.bat" if k == "Smart brain" else "get-advanced-models.bat"}
+                               for k, v in want.items()],
+                    "sites": monitor.site_report(), "files": knowledge.stats(),
+                    "brief": {**monitor.brief_cfg(), "last": last_brief[0]["created"] if last_brief else None,
+                              "running": monitor._brief_lock.locked()},
+                    "next": scheduler.system_status()})
+
+
+@app.post("/api/sites")
+def api_site_add():
+    b = request.json or {}
+    if not b.get("url"):
+        return jsonify({"error": "url needed"}), 400
+    return jsonify({"message": monitor.watch_website(b["url"].strip(), b.get("must_contain", ""))})
+
+
+@app.post("/api/sites/remove")
+def api_site_remove():
+    return jsonify({"message": monitor.unwatch_website((request.json or {}).get("url", ""))})
+
+
+@app.post("/api/sites/check")
+def api_site_check():
+    monitor.watch_all()
+    return jsonify(monitor.site_report())
+
+
+@app.post("/api/index")
+def api_index():
+    threading.Thread(target=knowledge.index_files, daemon=True).start()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/brief")
+def api_brief():
+    if monitor._brief_lock.locked():
+        return jsonify({"message": "Already running."})
+    threading.Thread(target=monitor.run_brief_job, daemon=True).start()
+    return jsonify({"message": "Started - the brief appears in the Inbox in about 3 minutes."})
 
 
 @app.get("/api/conversations")
@@ -142,6 +276,7 @@ def api_memory_delete(mid):
 if __name__ == "__main__":
     db.init()
     scheduler.start()
+    missions.resume()
     port = int(CFG.get("port", 5050))
     url = f"http://127.0.0.1:{port}"
     name = CFG.get("name", "Kakarot")

@@ -133,10 +133,15 @@ def _date_label(date):
     return f"{day.day} {day:%b}", day
 
 
-def report(date="today", save_folder=None):
+def collect(date="today"):
+    """All routes for a date: (day, [(origin, dest, trips or None, detail, error), ...])."""
     label, day = _date_label(date)
     rows = asyncio.run(_run(label))
-    rows = sorted(rows, key=lambda r: (-(r[2] or 0), r[0], r[1]))
+    return day, sorted(rows, key=lambda r: (-(r[2] or 0), r[0], r[1]))
+
+
+def report(date="today", save_folder=None, collected=None):
+    day, rows = collected or collect(date)
     with_trips = [r for r in rows if r[2]]
     without = [r for r in rows if r[2] == 0]
     failed = [r for r in rows if r[2] is None]

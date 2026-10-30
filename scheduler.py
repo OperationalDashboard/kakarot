@@ -85,6 +85,45 @@ def list_jobs():
     return out
 
 
+def _safe(fn):
+    def run():
+        try:
+            fn()
+        except Exception:
+            log.exception("system job failed")
+    return run
+
+
+def system_jobs():
+    """Built-in automatic jobs: morning brief, website watchdog, keeping the file index fresh."""
+    from apscheduler.triggers.interval import IntervalTrigger
+    from config import CFG
+    import knowledge
+    import monitor
+    b = monitor.brief_cfg()
+    if b["enabled"]:
+        h, m = (b["time"].split(":") + ["0"])[:2]
+        sched.add_job(_safe(monitor.run_brief_job), CronTrigger(hour=int(h), minute=int(m)), id="sys-brief",
+                      replace_existing=True, misfire_grace_time=2 * 3600)
+    elif sched.get_job("sys-brief"):
+        sched.remove_job("sys-brief")
+    monitor.seed_sites()
+    sched.add_job(_safe(monitor.watch_all), IntervalTrigger(minutes=int(CFG.get("watch_every_minutes", 5))),
+                  id="sys-watch", replace_existing=True,
+                  next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=20))
+    sched.add_job(_safe(knowledge.index_files), IntervalTrigger(hours=int(CFG.get("index_every_hours", 3))),
+                  id="sys-index", replace_existing=True,
+                  next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=90))
+
+
+def system_status():
+    out = {}
+    for jid in ("sys-brief", "sys-watch", "sys-index"):
+        job = sched.get_job(jid)
+        out[jid] = job.next_run_time.strftime("%a %d %b %H:%M") if job and job.next_run_time else None
+    return out
+
+
 def start():
     if sched.running:
         return
@@ -94,3 +133,7 @@ def start():
             _register(j)
         except Exception as e:
             log.error("could not restore job %s: %s", j["id"], e)
+    try:
+        system_jobs()
+    except Exception as e:
+        log.error("could not start built-in jobs: %s", e)

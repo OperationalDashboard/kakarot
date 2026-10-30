@@ -16,5 +16,22 @@
   "pin": "",
   "smart_model": "qwen3:14b",
   "browser_visible": false,
-  "approval_wait_seconds": 180
+  "approval_wait_seconds": 180,
+  "vision_model": "qwen2.5vl:3b",
+  "embed_model": "nomic-embed-text",
+  "mission_max_steps": 6,
+  "mission_step_actions": 10,
+  "daily_brief": {
+    "enabled": true,
+    "time": "07:00",
+    "low_seats": 5
+  },
+  "watch_sites": [
+    {
+      "url": "https://lalsobujdata.site",
+      "must_contain": ""
+    }
+  ],
+  "watch_every_minutes": 5,
+  "index_every_hours": 3
 }
