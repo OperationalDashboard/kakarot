@@ -57,6 +57,15 @@
   form button:disabled{opacity:.5}
   .ghost{background:none;border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:12px}
   .thinking{color:var(--muted);font-style:italic}
+  #smart{background:var(--bg);color:var(--muted);border:1px solid var(--line);border-radius:12px;padding:0 12px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+  #smart.on{background:#6b4fd8;color:#fff;border-color:#6b4fd8}
+  .approve{max-width:780px;margin:0 auto 14px;border:2px solid #d9a21b;background:var(--panel);border-radius:14px;padding:12px 14px}
+  .approve b{display:block;margin-bottom:4px}
+  .approve code{display:block;background:var(--code);padding:8px 10px;border-radius:8px;white-space:pre-wrap;word-break:break-all;margin:6px 0;font-size:13px}
+  .approve small{color:var(--muted)}
+  .approve .row{display:flex;gap:8px;margin-top:8px}
+  .approve button{border:0;border-radius:10px;padding:8px 16px;font:inherit;font-weight:600;cursor:pointer}
+  .approve .yes{background:var(--accent);color:var(--accent-ink)} .approve .no{background:var(--bg);color:var(--ink);border:1px solid var(--line)}
   #menu{display:none;background:none;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:4px 10px;font-size:16px;cursor:pointer}
   #shade{display:none}
   @media (max-width:800px){
@@ -89,7 +98,7 @@
   <div id="shade"></div>
   <header><button id="menu" title="Chats, inbox, schedules, notes">☰<span id="badge2"></span></button><span id="title">Chat</span><span id="status">checking…</span><button class="ghost" id="clear">New chat</button></header>
   <div id="chat"></div>
-  <form id="f"><textarea id="t" placeholder="Tell Kakarot what to do…  (Enter to send, Shift+Enter for new line)"></textarea><button id="send">Send</button></form>
+  <form id="f"><button type="button" id="smart" title="Smart mode: bigger brain for hard tasks (slower)">🧠 Smart</button><textarea id="t" placeholder="Tell Kakarot what to do…  (Enter to send, Shift+Enter for new line)"></textarea><button id="send">Send</button></form>
 </main>
 <script>
 const $ = s => document.querySelector(s);
@@ -99,11 +108,12 @@ let tab = "chats", lastInbox = null, conv = null;
 const store = { get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }, set(k,v){ try{ v==null ? localStorage.removeItem(k) : localStorage.setItem(k,v); }catch(e){} } };
 
 const EXAMPLES = [
-  "Make a folder called Projects and write a to-do list file in it",
-  "Search the web for today's USD to BDT rate",
-  "Every morning at 9, check lalsobujdata.site is up and tell me",
+  "Dhaka to Noakhali tomorrow - which trips are there?",
+  "Make an Excel sheet of my monthly expenses with a total row",
+  "Open lalsobujbus.com, search Dhaka to Sylhet and tell me the times",
+  "Write a Word letter to my bank asking for a statement",
   "Remind me in 30 minutes to call the office",
-  "List the PDFs in my Downloads and summarize the newest one"
+  "Show my PC's IP address"
 ];
 
 function addMsg(role, text){
@@ -120,7 +130,7 @@ function addSteps(steps){
   $("#chat").append(d);
 }
 function showEmpty(){
-  $("#chat").innerHTML = `<div class="empty"><h2>What should I do?</h2>I run fully on this PC. I can manage files, browse and monitor websites, take notes, set reminders and run tasks on a schedule.<div class="chips">${EXAMPLES.map(e=>`<button>${esc(e)}</button>`).join("")}</div></div>`;
+  $("#chat").innerHTML = `<div class="empty"><h2>What should I do?</h2>I run fully on this PC. I can use websites (click, type, fill forms), make Excel/Word/PDF files, run PC commands with your OK, set reminders and run tasks on a schedule. Turn on 🧠 Smart for hard jobs.<div class="chips">${EXAMPLES.map(e=>`<button>${esc(e)}</button>`).join("")}</div></div>`;
   $("#chat").querySelectorAll(".chips button").forEach(b => b.onclick = () => { $("#t").value = b.textContent; $("#t").focus(); });
 }
 
@@ -130,16 +140,35 @@ async function send(e){
   $("#t").value = ""; addMsg("user", text);
   const wait = addMsg("assistant", "Working on it…"); wait.querySelector(".b").classList.add("thinking");
   $("#send").disabled = true;
+  const ap = setInterval(checkApprovals, 1500);
   try{
-    const r = await api("/api/chat", {method:"POST", body:JSON.stringify({message:text, conversation_id: conv})});
+    const r = await api("/api/chat", {method:"POST", body:JSON.stringify({message:text, conversation_id: conv, smart: smart})});
     wait.remove();
     if(r.conversation_id){ conv = r.conversation_id; store.set("kakarot_conv", conv); }
     if(r.error){ addMsg("err", r.error + (r.hint ? "\n\n" + r.hint : "")); }
     else { addMsg("assistant", r.reply); addSteps(r.steps); }
   }catch(err){ wait.remove(); addMsg("err", "Can't reach Kakarot. Is the black window still open?"); }
+  clearInterval(ap); document.querySelectorAll(".approve").forEach(e => e.remove());
   $("#send").disabled = false; renderSide(); if(window.innerWidth > 800) $("#t").focus();
 }
 $("#f").onsubmit = send;
+let smart = store.get("kakarot_smart") === "1";
+function paintSmart(){ $("#smart").classList.toggle("on", smart); }
+$("#smart").onclick = () => { smart = !smart; store.set("kakarot_smart", smart ? "1" : null); paintSmart(); };
+paintSmart();
+async function checkApprovals(){
+  let list; try{ list = await api("/api/approvals"); }catch(e){ return; }
+  for(const a of list){
+    if(document.getElementById("ap" + a.id)) continue;
+    const d = document.createElement("div"); d.className = "approve"; d.id = "ap" + a.id;
+    d.innerHTML = `<b>⚠️ Kakarot wants to ${a.kind === "open" ? "open this file" : "run this command"} on your PC</b><code>${esc(a.detail)}</code><small>Why: ${esc(a.reason)}</small><div class="row"><button class="yes">Approve</button><button class="no">Deny</button></div>`;
+    const answer = async ok => { d.querySelectorAll("button").forEach(b => b.disabled = true); await api("/api/approvals/" + a.id, {method:"POST", body:JSON.stringify({approve: ok})}); d.remove(); };
+    d.querySelector(".yes").onclick = () => answer(true);
+    d.querySelector(".no").onclick = () => answer(false);
+    $("#chat").append(d); $("#chat").scrollTop = 1e9;
+  }
+  document.querySelectorAll(".approve").forEach(e => { if(!list.some(a => "ap" + a.id === e.id)) e.remove(); });
+}
 $("#t").addEventListener("keydown", e => { if(e.key === "Enter" && !e.shiftKey){ send(e); } });
 $("#menu").onclick = () => document.body.classList.add("open");
 $("#shade").onclick = () => document.body.classList.remove("open");
@@ -217,6 +246,7 @@ window.addEventListener("focus", () => document.title = "Kakarot");
   if(st){
     $("#name").textContent = st.name;
     $("#status").textContent = st.model_ready ? `● ${st.model} ready` : st.hint;
+    if(!st.smart_ready) $("#smart").title = `Smart mode needs ${st.smart_model}: run get-smart-brain.bat once`;
     $("#status").className = st.model_ready ? "" : "bad";
   }
   const last = store.get("kakarot_conv");
