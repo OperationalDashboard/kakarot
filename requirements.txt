@@ -1,0 +1,9 @@
+flask>=3.0
+requests>=2.31
+apscheduler>=3.10,<4
+beautifulsoup4>=4.12
+ddgs>=9.0
+playwright>=1.45
+pypdf>=4.0
+python-docx>=1.1
+plyer>=2.1

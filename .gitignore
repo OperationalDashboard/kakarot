@@ -1,0 +1,8 @@
+# local data - never commit
+venv/
+data/
+__pycache__/
+*.pyc
+*.db
+*.log
+secret.key

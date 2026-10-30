@@ -1,0 +1,17 @@
+{
+  "name": "Kakarot",
+  "model": "qwen3:8b",
+  "ollama_url": "http://localhost:11434",
+  "port": 5050,
+  "allowed_folders": [
+    "%USERPROFILE%\\Documents\\KakarotWorkspace",
+    "%USERPROFILE%\\Downloads"
+  ],
+  "max_steps": 12,
+  "history_messages": 16,
+  "context_tokens": 8192,
+  "open_browser_on_start": true,
+  "phone_access": true,
+  "public_access": true,
+  "pin": ""
+}
