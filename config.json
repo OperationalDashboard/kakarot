@@ -47,5 +47,13 @@
   },
   "max_lessons": 40,
   "site_fix_rounds": 4,
-  "site_visual_check": true
+  "site_visual_check": true,
+  "publish_needs_approval": true,
+  "site_check_pages": 20,
+  "site_check_external_links": true,
+  "site_import_max_mb": 400,
+  "site_import_max_files": 8000,
+  "github_api": "https://api.github.com",
+  "netlify_api": "https://api.netlify.com",
+  "vercel_api": "https://api.vercel.com"
 }

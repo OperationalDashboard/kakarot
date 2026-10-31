@@ -60,6 +60,57 @@ Kakarot then works in the background (Missions tab):
 
 To change it later: *"update my website green_line: add a fares page and make the header dark green"*. A typical site takes about 30–90 minutes with the 14B coding brain on this PC.
 
+## Checks, fixes and publishes your existing websites
+
+Everything is in the **Websites** tab (or just ask in chat: *"open lalsobujdata.site, check it and fix every problem"*, *"publish it"*, *"undo the last publish"*).
+
+**Open any site.** Give a live address, a GitHub repo (`owner/repo`), or a folder on this PC. Kakarot copies it into the code folder, works out what it is (plain HTML, PHP/WordPress, Flask, React/Vite/Next, Node) and checks it. Save your hosting's **FTP account** first (Websites → Publishing accounts) and Kakarot downloads the **real files** from the server. Without it, a live address only gives a copy of what visitors see.
+
+**Deep check (score out of 100).** Every page is opened in a hidden browser, on a computer and on a phone screen:
+- **Errors:** pages that fail (404/500), JavaScript and console errors, files that don't load.
+- **Links:** broken links, inside the site and to other sites.
+- **Mobile:** content wider than the screen, tiny text, buttons too small to tap, missing viewport tag.
+- **SEO:** titles, descriptions, headings, duplicate titles, robots.txt, sitemap.
+- **Accessibility:** alt text, form labels, buttons with no name, low-contrast text.
+- **Speed:** load time, page size, huge images, scripts that block the page.
+- **Security:** HTTPS and its redirect, certificate expiry, security headers, mixed content, exposed `.env`/`.git`, outdated PHP.
+- **Code:** syntax of the Python, PHP, JavaScript and JSON files.
+- **Design:** the picture brain reviews the desktop and phone screenshots.
+
+Each problem names the file most likely responsible and whether Kakarot can fix it.
+
+**Fixes and changes, safely.**
+- **Fix problems** checks the site, fixes, then checks again (several rounds).
+- **Exact fixes need no AI:** huge images are compressed, viewport and language tags are added, and security headers and the HTTPS redirect go into `.htaccess` for cPanel hosting.
+- **Changes in plain words:** *"Add a prices page with Dhaka–Sylhet 800 Tk"*. Kakarot finds the right files itself. Big files get precise search-and-replace edits instead of being rewritten.
+- **Guard rails:**
+  - Every edited file is syntax-checked.
+  - The site is re-tested after each change. If a change breaks something, Kakarot repairs it or **undoes it automatically**.
+  - Every change has a diff and an **Undo** button (and the undo can be undone).
+
+**Publishing (you tap Approve first):**
+- **GitHub:** your code, to an existing or new repository.
+- **GitHub Pages:** free hosting. React/Vite sites are built and published to a `gh-pages` branch.
+- **Your hosting over FTP/cPanel** (for example Namecheap): secure FTPS.
+- **Netlify** and **Vercel**.
+- **Back to the original folder** on this PC.
+
+**Publishing safety:**
+- **Only changed files are sent.** Nothing on the server is deleted unless you ask.
+- **Backups:** before a file on your hosting is replaced, Kakarot downloads the old one, so **Undo publish** puts it back. On GitHub it makes an undo commit; on Netlify it restores the earlier version.
+- **Conflicts:** if someone changed the same file on GitHub or on the server since Kakarot downloaded it, Kakarot stops instead of overwriting. **Get latest** brings their changes in and keeps both versions when both sides changed.
+- **Live check:** afterwards Kakarot opens the live site to confirm the new version is there and the pages work.
+- **Private files stay private:** files with passwords or keys never go to GitHub, Netlify or Vercel. That covers `.env`, private keys and databases, and also a `config.php` holding the database password. They still go to your own hosting.
+
+**Accounts.** Add them in **Websites → Publishing accounts**:
+- **GitHub:** a fine-grained token with *Contents: Read and write*, plus *Administration* to create repos and *Pages* for GitHub Pages.
+- **FTP/cPanel:** the details from cPanel → FTP Accounts. The server is often `ftp.yoursite.com` or `serverNNN.web-hosting.com`, the user looks like `name@yoursite.com`, and the folder is usually `public_html`.
+- **Netlify / Vercel:** a personal token.
+
+Passwords and tokens are saved only on this PC, **encrypted with your Windows login**. They are never shown to the AI and never written into chats or logs.
+
+Testing PHP sites on this PC needs PHP installed (optional). Without it, Kakarot checks the live site plus the code. React/Vite sites need Node.js to build.
+
 ## Writes real code
 
 Ask for any program: "Write a Python script that merges all Excel files in a folder and test it", "Make a small website for my bus counter", "Write a Telegram bot that…". Kakarot creates a project in `Documents\KakarotWorkspace\code\<project>`. Its **coding brain** (`qwen2.5-coder:14b`) writes each file, then Kakarot runs the code and the tests, reads the errors and fixes them until it works. Each project gets its own Python environment (`.venv`), so packages never affect Kakarot.
@@ -144,6 +195,11 @@ Double-click **`add-to-startup.bat`** once. To undo it, run **`remove-from-start
 | `phone_access` | `true` lets devices on your Wi-Fi connect (PIN required). `false` = this PC only. |
 | `public_access` | `true` = ready for the anywhere link (`go-online.bat`): everyone logs in, with a stronger password. |
 | `pin` | Your PIN/password. If it's empty, one is created on first start. |
+| `publish_needs_approval` | `true` (default) = you tap Approve before any website is published or a publish is undone. |
+| `site_check_pages` | How many pages a website check opens (default 20). |
+| `site_check_external_links` | Also test links to other websites (default `true`). |
+| `site_fix_rounds` | Check → fix → check rounds when building or fixing a site (default 4). |
+| `site_import_max_mb` / `site_import_max_files` | Size limits when opening a site (default 400 MB / 8000 files). |
 
 ## Safety built in
 
@@ -152,6 +208,8 @@ Double-click **`add-to-startup.bat`** once. To undo it, run **`remove-from-start
 * It runs PC commands or opens files **only after you click Approve**. Scheduled jobs and missions can never run commands.
 * Other devices (like your phone) need the PIN. Turn this off with `"phone_access": false`.
 * Everything (chats, memory, notes, schedules) stays in `data\kakarot.db` on your PC.
+* Websites are only published after you tap Approve. Server files are backed up first, conflicts stop the publish, and
+  files with passwords/keys never go to public places. Publishing passwords/tokens are encrypted with your Windows login.
 
 ## Tips for good results
 

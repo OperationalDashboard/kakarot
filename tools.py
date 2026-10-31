@@ -57,6 +57,80 @@ def schemas():
     return [t["schema"] for t in TOOLS.values()]
 
 
+# ---------------------------------------------------------------- only the abilities a message needs
+# The local brain's memory is small (8K tokens). Sending all 70+ ability descriptions every time would push the
+# instructions and the chat out of its memory, so each message gets the always-needed ones plus the groups that
+# match what the user is talking about (then others, while they fit).
+CORE = ["list_files", "read_file", "write_file", "make_folder", "move_file", "trash_file", "search_files", "web_search",
+        "fetch_page", "remember", "add_note", "set_reminder", "get_time", "start_mission"]
+GROUPS = [  # (name, tools or module names, keywords)
+    ("websites", ["sitebuilder", "workshop"],
+     r"web ?site|\bsite\b|web ?app|web ?page|landing|portfolio|publish|deploy|github|\brepo|hosting|\bftp|cpanel|"
+     r"namecheap|netlify|vercel|domain|\bseo\b|online|html|css|lalsobujdata|greenwonderland|"
+     r"\.(com|site|net|org|io|app|dev|bd|xyz|shop)\b"),
+    ("lalsobuj", ["lalsobuj_trip_report", "lalsobuj_route_trips", "lalsobuj_morning_brief"],
+     r"\bbus|\btrips?\b|route|\bseats?\b|ticket|lal ?sobuj|dhaka|sylhet|chatt?og|chittagong|noakhali|counter|"
+     r"coach|\bfares?\b|cox|rajshahi|khulna|barishal|comilla|feni"),
+    ("code", ["coder"], r"\bcode|program|script|python|javascript|\bfunction|\bbug|\bapp\b|automat|\bbot\b|\bapi\b|"
+                        r"test it|run it|debug|\.py\b|software"),
+    ("office", ["office"], r"excel|xlsx|\bsheet|spreadsheet|\bword\b|docx|\bpdf|document|letter|\breport|invoice|"
+                           r"\btable|chart|\bcsv"),
+    ("browser", ["browser_ctl", "browse_page", "check_page_changes"],
+     r"\bopen\b|click|log ?in|sign ?in|\bfill|\bform\b|button|browse|go to|type in|select|scroll|screenshot|"
+     r"https?://|www\.|search on|book (a|the)|changed"),
+    ("vision", ["vision"], r"photo|picture|image|screenshot|scan|look at|attached|\.(png|jpe?g|webp|gif)\b|see this"),
+    ("files", ["knowledge", "file_info"], r"my files|my documents|in my|folder|search my|documents? say|agreement|"
+                                          r"contract|find (the|my) file|index"),
+    ("pc", ["pctools"], r"command|\bcmd\b|\brun\b|ip address|ipconfig|install|open (the |this |my )?(file|folder|app)|"
+                        r"\bpc\b|computer|notepad|restart|shutdown"),
+    ("watch", ["monitor"], r"watch|monitor|\bup\b|\bdown\b|uptime|brief|morning|certificate"),
+    ("schedule", ["schedule_task", "list_scheduled", "cancel_scheduled"],
+     r"remind|every (day|week|month|hour|morning|night)|schedul|daily|weekly|\bat \d|tomorrow|cancel"),
+    ("memory", ["forget", "list_memory", "list_notes", "complete_note"], r"remember|forget|memory|\bnotes?\b|to-?do|done|tick"),
+    ("missions", ["missions"], r"mission|background|research|compare|in detail|deep"),
+    ("self", ["selfupdate", "plugins"], r"update (your)?self|new version|learn|new abilit|tool for|build (your)?self|"
+                                        r"my tools|upgrade"),
+]
+FILL_ORDER = ["websites", "browser", "office", "code", "lalsobuj", "files", "vision", "missions", "pc", "schedule",
+              "memory", "watch", "self"]
+
+
+def _group_tools(spec):
+    names = []
+    for x in spec:
+        if x in TOOLS:
+            names.append(x)
+        else:
+            names += [n for n, t in TOOLS.items() if t["fn"].__module__ == x]
+    return names
+
+
+def schemas_for(messages, ctx_tokens=8192):
+    """Ability descriptions for this conversation: core + matching groups, then more while they fit."""
+    texts = [m.get("content") or "" for m in messages if m.get("role") == "user"][-3:]
+    text = " ".join(texts).lower()
+    used = {c["function"]["name"] for m in messages for c in (m.get("tool_calls") or []) if c.get("function")}
+    budget = int(ctx_tokens * 4 * 0.42)
+    chosen = [n for n in CORE if n in TOOLS] + [n for n in used if n in TOOLS and n not in CORE]
+    size = lambda names: len(json.dumps([TOOLS[n]["schema"] for n in names]))
+    groups = {g: _group_tools(spec) for g, spec, _ in GROUPS}
+    matched = [g for g, _, kw in GROUPS if re.search(kw, text)]
+    plugin_tools = [n for n, t in TOOLS.items() if t["fn"].__module__.startswith("plugins.") or
+                    t["fn"].__module__.startswith("kakarot_plugin")]
+    for g in matched + ["__plugins"] + [g for g in FILL_ORDER if g not in matched]:
+        names = plugin_tools if g == "__plugins" else groups.get(g, [])
+        extra = [n for n in names if n not in chosen]
+        if not extra:
+            continue
+        if g in matched or g == "__plugins" or size(chosen + extra) <= budget:
+            chosen += extra
+    # anything else at all? (tools not in any group, e.g. new plugins) - add while it fits
+    for n in TOOLS:
+        if n not in chosen and size(chosen + [n]) <= budget:
+            chosen.append(n)
+    return [TOOLS[n]["schema"] for n in chosen]
+
+
 def execute(name, args):
     t = TOOLS.get(name)
     if not t:
@@ -428,5 +502,6 @@ import monitor  # noqa: E402,F401     morning brief + website watchdog
 import coder  # noqa: E402,F401      write / run / fix real programs
 import selfupdate  # noqa: E402,F401 nightly learning, new versions, brain refresh
 import sitebuilder  # noqa: E402,F401 complete websites: plan, write, browser-test, fix, preview
+import workshop  # noqa: E402,F401   open any website, deep check, fix/change safely, publish (GitHub/FTP/Netlify/Vercel)
 import plugins  # noqa: E402         abilities Kakarot built for itself (approved by the user)
 plugins.load_all()

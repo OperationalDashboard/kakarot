@@ -148,21 +148,6 @@ CURRENT FILE:
 ```
 Reply with the COMPLETE improved file in one code block."""
 
-UPDATE_PROMPT = """You maintain this website. The user wants this change:
-\"\"\"{change}\"\"\"
-
-WEBSITE PLAN:
-{spec}
-
-FILES:
-{file_list}
-
-Decide which files to edit and which new files to create. Reply ONLY JSON:
-{{"edit": [{{"path": "...", "what": "exact changes for this file"}}],
-  "create": [{{"path": "...", "purpose": "what it contains", "depends_on": ["..."]}}],
-  "summary": "one sentence for the user"}}"""
-
-
 # ---------------------------------------------------------------- helpers
 def _json(text):
     m = re.search(r"\{.*\}", text or "", flags=re.S)
@@ -225,11 +210,7 @@ class _Quiet(http.server.SimpleHTTPRequestHandler):
 
 
 def _serve_static(pdir):
-    handler = functools.partial(_Quiet, directory=pdir)
-    srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), handler)
-    srv.daemon_threads = True
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    return srv, f"http://127.0.0.1:{srv.server_address[1]}/"
+    return sites.serve_folder(pdir)
 
 
 def _static_link_problems(pdir):
@@ -558,9 +539,15 @@ def _test_and_fix(pdir, spec, job, rounds):
 def run(mid):
     job = Job(mid)
     import missions
+    import workshop
+    mode = job.data.get("mode")
+    if mode == "update":                      # older queued jobs -> the new safe change engine
+        job.data["mode"] = "change"
+        db.x("UPDATE missions SET data=? WHERE id=?", (json.dumps(job.data, ensure_ascii=False), mid))
+        mode = "change"
+    if mode in workshop.MODES:
+        return workshop.run(mid)
     missions._save(mid, status="running")
-    if job.data.get("mode") == "update":
-        return _run_update(job)
     request = job.data.get("request") or job.goal
     rounds = int(CFG.get("site_fix_rounds", 4))
     # 1. plan
@@ -588,6 +575,7 @@ def run(mid):
             pdir = coder.code_path(name)
         os.makedirs(pdir, exist_ok=True)
         spec["name"], spec["request"] = name, request
+        spec["origin"] = {"type": "built"}
         spec["files"] = [f for f in spec.get("files", []) if isinstance(f, dict) and f.get("path")][:18]
         for a in job.data.get("assets") or []:
             try:
@@ -659,50 +647,6 @@ def _finish(job, pdir, spec, remaining, probs, look_note, headline=None):
     scheduler.notify("Website ready", spec.get("title", name))
 
 
-def _run_update(job):
-    pdir = coder.code_path(job.data["name"])
-    with open(os.path.join(pdir, SPEC_FILE), encoding="utf-8") as f:
-        spec = json.load(f)
-    change = job.data["change"]
-    if not job.plan:
-        job.set_plan(["Decide what to change", "Make the changes", "Test in a real browser and fix", "Package"])
-    existing = [os.path.relpath(os.path.join(dp, f), pdir).replace(os.sep, "/") for dp, dirs, fs in os.walk(pdir)
-                for f in fs if os.path.splitext(f)[1] in TEXT_EXT and not any(s in dp for s in coder.SKIP)
-                and f != SPEC_FILE]
-    raw, _ = coder.ask_coder(UPDATE_PROMPT.format(change=change, spec=_short_spec(spec),
-                                                  file_list="\n".join(f"- {p}" for p in existing)))
-    plan = _json(raw)
-    edits = [e for e in plan.get("edit") or [] if e.get("path") in existing][:10]
-    creates = [c for c in plan.get("create") or [] if c.get("path")][:6]
-    job.done("Decide what to change", plan.get("summary", "") + "\nEdit: " + ", ".join(e["path"] for e in edits) +
-             ("\nNew: " + ", ".join(c["path"] for c in creates) if creates else ""))
-    done = []
-    for c in creates:
-        ctx = _context_for(pdir, c.get("depends_on") or [])
-        code = _ask_file(FILE_PROMPT.format(path=c["path"], spec=json.dumps(spec, ensure_ascii=False)[:9000],
-                                            file_list=_file_list(spec), purpose=c.get("purpose", ""), context=ctx,
-                                            lang=""))
-        _write(os.path.join(pdir, *c["path"].split("/")), code)
-        spec["files"].append({"path": c["path"], "purpose": c.get("purpose", ""), "depends_on": c.get("depends_on", [])})
-        done.append(f"created {c['path']}")
-    for e in edits:
-        if job.cancelled():
-            return
-        fp = os.path.join(pdir, *e["path"].split("/"))
-        code = _ask_file(FIX_PROMPT.format(spec=_short_spec(spec), path=e["path"], code=_read(fp, 40000),
-                                           problems=f"- The user asked: {change}\n- For this file: {e.get('what', '')}",
-                                           context=""))
-        if len(code.strip()) >= 0.35 * len(_read(fp).strip()):
-            _write(fp, code)
-            done.append(f"updated {e['path']}")
-    spec.setdefault("changes", []).append({"at": db.now(), "change": change})
-    _write(os.path.join(pdir, SPEC_FILE), json.dumps(spec, ensure_ascii=False, indent=2))
-    job.done("Make the changes", ", ".join(done) or "no files changed")
-    history, shots, remaining, probs = _test_and_fix(pdir, spec, job, int(CFG.get("site_fix_rounds", 4)))
-    job.done("Test in a real browser and fix", "\n".join(history), ok=remaining == 0)
-    _finish(job, pdir, spec, remaining, probs, "", headline=f"✏️ Website updated ({change[:60]})")
-
-
 # ---------------------------------------------------------------- tools for the assistant
 def _assets(text):
     out = []
@@ -738,41 +682,3 @@ def build_website(request, name="", assets=""):
     return (f"Started building the website (Mission #{mid}). I'm planning it now, then I write about {n} files, test "
             f"everything in a real browser and fix problems. With the coding brain on this PC that takes roughly "
             f"30-90 minutes. Progress is in the Missions tab, and the live link will arrive in your Inbox.")
-
-
-@tool("update_website", "Change a website Kakarot built before: new page, new section, different colors, fix a bug, "
-                        "add a feature. It edits the right files, re-tests in a browser and updates the preview.",
-      {"name": S("The website's folder name (see list_websites)."), "change": S("Exactly what to change.")})
-def update_website(name, change):
-    import missions
-    name = _slug(name)
-    if not os.path.exists(os.path.join(coder.code_path(name), SPEC_FILE)):
-        return f"I can't find a website called '{name}'. " + list_websites()
-    mid = missions.start(f"Update website {name}: {change[:120]}", kind="website",
-                         data={"mode": "update", "name": name, "change": change})
-    return f"Updating '{name}' in the background (Mission #{mid}). The new link arrives in your Inbox when it's tested."
-
-
-@tool("list_websites", "List the websites Kakarot has built, with their preview links.")
-def list_websites():
-    rows = []
-    for d in sorted(os.listdir(coder.CODE_DIR)):
-        sp = sites.spec_of(d) if os.path.isdir(os.path.join(coder.CODE_DIR, d)) else None
-        if sp:
-            rows.append(f"- {d}: {sp.get('title', '')} ({sp.get('type')}) → {sites.preview_path(d)}")
-    return "Websites:\n" + "\n".join(rows) if rows else "No websites built yet."
-
-
-@tool("check_website", "Test a website Kakarot built (or any site folder in the code workspace) in a real browser "
-                       "and report broken links, JavaScript errors and server errors.",
-      {"name": S("Website folder name.")})
-def check_website(name):
-    pdir = coder.code_path(_slug(name))
-    spec = sites.spec_of(_slug(name)) or {"type": sites.kind_of(_slug(name))}
-    probs, missing, _ = test_site(pdir, spec)
-    if not probs and not missing:
-        return f"No problems found in {name}. Preview: {sites.preview_path(_slug(name))}"
-    out = [f"{k}:\n  - " + "\n  - ".join(v[:6]) for k, v in probs.items()]
-    if missing:
-        out.append("Missing files: " + ", ".join(f"{k} (linked from {v})" for k, v in missing.items()))
-    return _cut("\n".join(out), 6000)

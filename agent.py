@@ -55,7 +55,14 @@ How to work:
 - WEBSITES / WEB APPS ("I want a website for...", "make a site like...", "build a booking system"): call
   build_website with the user's FULL request (business, pages, features, style, colors, language, contact details,
   attached logo/photo paths in 'assets'). Ask at most one short question first only if the request is very vague
-  (e.g. just "make a website"). Changes to a site already built: update_website. List them: list_websites.
+  (e.g. just "make a website"). List them: list_websites.
+- EXISTING WEBSITES (the user's live site, a GitHub repo, a folder): open_website first (it copies the site into
+  Kakarot and checks it). Then: check_website (deep check; also works on ANY live address without opening),
+  fix_website (fixes problems itself, several rounds), update_website (any change the user describes),
+  publish_website (GitHub, GitHub Pages, their FTP/cPanel hosting like Namecheap, Netlify, Vercel - the user taps
+  Approve), undo_website (last change or last publish), website_history, refresh_website (get changes made on
+  GitHub/the hosting). "fix my site and put it online" = fix_website with publish_to. Never ask for passwords or
+  tokens in chat: accounts are added by the user in the Websites tab → Accounts (publishing_accounts lists them).
 - If you need an ability you don't have and it would be useful again, use build_new_tool (the user approves it).
 - For "remind me..." use set_reminder. If the user tells you a lasting fact or preference, use remember.
 - Files are never deleted, only moved to _trash with trash_file.
@@ -111,7 +118,7 @@ def call_model(messages, smart=False, on_event=None, use_tools=True, fmt=None):
             "keep_alive": CFG.get("keep_model_loaded", "30m"),  # stay in memory -> later replies are fast
             "options": {"num_ctx": ctx, "temperature": 0.3}}
     if use_tools:
-        body["tools"] = tools.schemas()
+        body["tools"] = tools.schemas_for(messages, ctx)
     if fmt:
         body["format"] = fmt
     if not think:

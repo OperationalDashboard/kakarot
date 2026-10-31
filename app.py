@@ -5,6 +5,7 @@ import logging
 import logging.handlers
 import os
 import queue
+import re
 import threading
 import webbrowser
 
@@ -21,9 +22,12 @@ import monitor
 import plugins
 import scheduler
 import selfupdate
+import deploy
 import sitebuilder
 import sites
+import vault
 import vision
+import workshop
 from config import BASE, CFG
 
 os.makedirs(os.path.join(BASE, "data"), exist_ok=True)
@@ -198,11 +202,25 @@ def api_brief():
 @app.get("/sites/<name>/")
 @app.get("/sites/<name>/<path:sub>")
 def site_static(name, sub="index.html"):
-    """Preview of a static website Kakarot built (served from its project folder)."""
-    pdir = coder.code_path(name)
-    if sub.endswith("/") or os.path.isdir(os.path.join(pdir, sub)):
+    """Preview of a static website (served from its folder; React/Vite sites are built the first time)."""
+    import html as _html
+    try:
+        root = sites.static_root(name)
+    except Exception as e:
+        return Response(f"<h2>The preview of '{_html.escape(name)}' could not be made</h2><pre>{_html.escape(vault.scrub(e))}</pre>",
+                        500, mimetype="text/html")
+    fp = os.path.join(root, *sub.split("/"))
+    if sub.endswith("/") or os.path.isdir(fp):
         sub = sub.rstrip("/") + "/index.html"
-    return send_from_directory(pdir, sub.lstrip("/"))
+    elif not os.path.exists(fp) and os.path.exists(fp + ".html"):
+        sub += ".html"                       # clean links like /about -> about.html
+    resp = send_from_directory(root, sub.lstrip("/"))
+    resp.headers["Cache-Control"] = "no-cache"
+    spec = sites.spec_of(name) or {}
+    if spec.get("imported") and resp.mimetype in ("text/html", "text/css"):
+        resp.direct_passthrough = False
+        resp.set_data(sites.rewrite_root(resp.get_data(), f"/sites/{name}/", resp.mimetype))
+    return resp
 
 
 @app.route("/apps/<name>/", defaults={"sub": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
@@ -218,13 +236,131 @@ def site_app(name, sub):
 
 @app.get("/api/websites")
 def api_websites():
-    out = []
-    for d in sorted(os.listdir(coder.CODE_DIR)):
-        sp = sites.spec_of(d) if os.path.isdir(os.path.join(coder.CODE_DIR, d)) else None
-        if sp:
-            out.append({"name": d, "title": sp.get("title", d), "type": sp.get("type"), "summary": sp.get("summary", ""),
-                        "link": sites.preview_path(d)})
-    return jsonify(out)
+    return jsonify(workshop.site_cards())
+
+
+def _ws(fn):
+    try:
+        return jsonify(fn())
+    except (ValueError, PermissionError, FileNotFoundError, deploy.DeployError) as e:
+        return jsonify({"error": vault.scrub(e)}), 400
+    except Exception as e:
+        logging.exception("website action failed")
+        return jsonify({"error": vault.scrub(e)}), 500
+
+
+@app.post("/api/websites/open")
+def api_website_open():
+    b = request.json or {}
+    def go():
+        mid, kind = workshop.start_open((b.get("source") or "").strip(), (b.get("name") or "").strip(),
+                                        (b.get("account") or "").strip())
+        return {"message": f"Opening it (Mission #{mid}) - the check report follows.", "mission": mid}
+    return _ws(go)
+
+
+@app.get("/api/websites/<name>")
+def api_website_detail(name):
+    return _ws(lambda: workshop.site_detail(name))
+
+
+@app.post("/api/websites/<name>/<action>")
+def api_website_action(name, action):
+    b = request.json or {}
+    def go():
+        if action == "check":
+            return {"message": workshop.check_website(name, bool(b.get("live")))}
+        if action == "fix":
+            return {"message": workshop.fix_website(name, b.get("focus", ""), b.get("publish_to", ""))}
+        if action == "change":
+            if not (b.get("change") or "").strip():
+                raise ValueError("Describe the change.")
+            return {"message": workshop.update_website(name, b["change"].strip(), b.get("publish_to", ""))}
+        if action == "publish":
+            opts = {k: b[k] for k in ("repo", "branch", "folder", "message", "visibility") if b.get(k)}
+            if b.get("pages"):
+                opts["pages"] = True
+            if b.get("remove_deleted"):
+                opts["remove_deleted"] = True
+            return {"message": workshop.request_publish(name, b.get("target", ""), opts)}
+        if action == "undo":
+            return {"message": workshop.undo_website(name, b.get("what", "change"), b.get("id", ""))}
+        if action == "refresh":
+            return {"message": workshop.refresh_website(name)}
+        raise ValueError("unknown action")
+    return _ws(go)
+
+
+@app.get("/api/websites/<name>/diff/<cid>")
+def api_website_diff(name, cid):
+    import siteproject as sp
+    return Response(sp.change_diff(sp.project_dir(workshop._find(name)), re.sub(r"[^\w-]", "", cid)) or "(no diff)",
+                    mimetype="text/plain; charset=utf-8")
+
+
+@app.get("/api/websites/<name>/shot/<which>")
+def api_website_shot(name, which):
+    import siteproject as sp
+    d = os.path.join(sp.project_dir(workshop._find(name)), sp.META, "screens")
+    return send_from_directory(d, "phone.png" if which == "phone" else "desktop.png", max_age=0)
+
+
+@app.get("/api/publish-targets/<name>")
+def api_publish_targets(name):
+    def go():
+        import siteproject as sp
+        spec = sp.load(workshop._find(name)) or {}
+        acc = vault.listing()
+        out = []
+        if any(a["kind"] == "github" for a in acc):
+            out += [{"value": "github", "label": "GitHub (code)"}, {"value": "github-pages", "label": "GitHub Pages (free hosting)"}]
+        out += [{"value": a["key"], "label": f"Hosting: {a.get('label')} ({a.get('site_url') or a.get('host')})"}
+                for a in acc if a["kind"] == "ftp"]
+        out += [{"value": k, "label": k.capitalize()} for k in ("netlify", "vercel") if any(a["kind"] == k for a in acc)]
+        if (spec.get("origin") or {}).get("type") == "folder":
+            out.append({"value": "folder", "label": f"Back to {spec['origin']['path']}"})
+        return {"targets": out, "default": workshop._default_target(spec)}
+    return _ws(go)
+
+
+@app.get("/api/accounts")
+def api_accounts():
+    return jsonify(vault.listing())
+
+
+@app.post("/api/accounts")
+def api_account_save():
+    b = request.json or {}
+    def go():
+        kind = b.pop("kind", "")
+        for f in ("secure", "verify_cert", "allow_plain"):
+            if f in b:
+                b[f] = bool(b[f])
+        key = vault.save(kind, b)
+        return {"ok": True, "key": key}
+    return _ws(go)
+
+
+@app.delete("/api/accounts/<path:key>")
+def api_account_delete(key):
+    vault.remove(key)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/accounts/<path:key>/test")
+def api_account_test(key):
+    def go():
+        if key == "github":
+            return {"message": f"✅ Signed in to GitHub as {deploy.GitHub().login()}"}
+        if key == "netlify":
+            return {"message": f"✅ Signed in to Netlify as {deploy.Netlify().me().get('email', '?')}"}
+        if key == "vercel":
+            u = deploy.Vercel().me().get("user", {})
+            return {"message": f"✅ Signed in to Vercel as {u.get('username') or u.get('email', '?')}"}
+        if key.startswith("ftp:"):
+            return {"message": "✅ " + deploy.test_ftp(key)}
+        raise ValueError("unknown account")
+    return _ws(go)
 
 
 @app.post("/api/websites")
@@ -308,6 +444,9 @@ def api_approval_answer(aid):
     ok = bool((request.json or {}).get("approve"))
     row = db.q("SELECT * FROM approvals WHERE id=? AND status='pending'", (aid,))
     db.x("UPDATE approvals SET status=? WHERE id=? AND status='pending'", ("approved" if ok else "denied", aid))
+    if row and row[0]["kind"] == "publish" and ok:  # publish a website (or undo a publish)
+        mid = workshop.approved(row[0]["detail"])
+        return jsonify({"ok": True, "mission": mid})
     if row and row[0]["kind"] == "tool":  # a new ability Kakarot built for itself
         name = json.loads(row[0]["detail"])["name"]
         try:

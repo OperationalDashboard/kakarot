@@ -15,7 +15,7 @@ from tools import I, ROOTS, S, _cut, tool
 
 CODE_DIR = os.path.normpath(os.path.expandvars(CFG.get("code_folder", "")) or os.path.join(ROOTS[0], "code"))
 os.makedirs(CODE_DIR, exist_ok=True)
-SKIP = {".venv", "venv", "node_modules", "__pycache__", ".git", "dist", "build", ".pytest_cache"}
+SKIP = {".venv", "venv", "node_modules", "__pycache__", ".git", "dist", "build", ".pytest_cache", ".kakarot"}
 WIN = os.name == "nt"
 
 CODER_SYSTEM = """You are an expert senior software engineer. You write complete, correct, production-quality code:
