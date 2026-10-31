@@ -314,7 +314,51 @@ def boot_ok():
             log.warning("boot_ok: %s", e)
 
 
+def _code_stamp():
+    """Newest change time of Kakarot's own Python files."""
+    newest = 0.0
+    for n in os.listdir(BASE):
+        if n.endswith(".py"):
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(BASE, n)))
+            except OSError:
+                pass
+    return newest
+
+
+def watch_code(every=20):
+    """If Kakarot's code files change on disk (new version copied in by hand or by Claude),
+    restart into the new code by itself so the chat page and the server never get out of step.
+    Only when started by start.bat, which brings Kakarot straight back."""
+    if os.environ.get("KAKAROT_LAUNCHER") != "1":
+        return
+    start = _code_stamp()
+
+    def loop():
+        while True:
+            time.sleep(every)
+            now = _code_stamp()
+            if now > start:
+                time.sleep(5)  # let the copy finish
+                bad = []
+                for n in os.listdir(BASE):
+                    if n.endswith(".py"):
+                        try:
+                            with open(os.path.join(BASE, n), encoding="utf-8") as f:
+                                compile(f.read(), n, "exec")
+                        except Exception:
+                            bad.append(n)
+                if bad:
+                    log.warning("new code has errors in %s - not restarting yet", ", ".join(bad))
+                    continue
+                log.info("code files changed on disk - restarting into the new version")
+                restart_when_idle()
+                return
+    threading.Thread(target=loop, daemon=True).start()
+
+
 def startup():
+    watch_code()
     if os.path.exists(NOTE_FILE):
         with open(NOTE_FILE, encoding="utf-8") as f:
             db.add_inbox("↩️ Update rolled back", f.read())

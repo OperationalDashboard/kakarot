@@ -7,12 +7,17 @@ if not exist venv\Scripts\activate.bat (
   exit /b 1
 )
 call venv\Scripts\activate.bat
+rem If an older Kakarot is still running (even hidden), stop it so this one can start.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0stop-old.ps1"
+set KAKAROT_LAUNCHER=1
+set KAKAROT_RESTARTED=
 :run
 python app.py
 set CODE=%errorlevel%
+set KAKAROT_RESTARTED=1
 if "%CODE%"=="3" (
   echo.
-  echo  Kakarot updated itself - restarting...
+  echo  Kakarot is restarting into its new version...
   timeout /t 3 /nobreak >nul
   goto run
 )
@@ -23,4 +28,7 @@ if exist data\pending_update.json (
   timeout /t 3 /nobreak >nul
   goto run
 )
-pause
+echo.
+echo  Kakarot stopped. Starting it again in 10 seconds (close this window to stop for good)...
+timeout /t 10 >nul
+goto run

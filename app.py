@@ -516,6 +516,6 @@ if __name__ == "__main__":
         if auth.PUBLIC:
             print("  From anywhere: run go-online.bat once, then open your https://....ts.net link")
     print("\n  Keep this window open. Close it to stop.\n")
-    if CFG.get("open_browser_on_start", True):
+    if CFG.get("open_browser_on_start", True) and os.environ.get("KAKAROT_RESTARTED") != "1":
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     app.run(host="0.0.0.0" if PHONE else "127.0.0.1", port=port, threaded=True, use_reloader=False)
