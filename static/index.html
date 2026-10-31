@@ -224,6 +224,7 @@ async function send(e){
     }
     const res = await fetch("/api/chat/stream", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({message:msg, conversation_id:conv, smart:smart})});
     if(res.status === 401){ location.href = "/login"; return; }
+    if(!res.ok){ got = true; live.remove(); wait.remove(); addMsg("err", res.status === 404 ? "Kakarot is switching to its new version. Wait 30 seconds, refresh this page and send again." : "Kakarot hit a problem (" + res.status + "). Try again in a moment."); return; }
     const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "", lastLine = null, thinkEl = null;
     const handle = ev => {
       if(ev.type === "start"){ conv = ev.conversation_id; store.set("kakarot_conv", conv); }
