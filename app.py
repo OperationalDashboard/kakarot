@@ -21,6 +21,8 @@ import monitor
 import plugins
 import scheduler
 import selfupdate
+import sitebuilder
+import sites
 import vision
 from config import BASE, CFG
 
@@ -191,6 +193,46 @@ def api_brief():
         return jsonify({"message": "Already running."})
     threading.Thread(target=monitor.run_brief_job, daemon=True).start()
     return jsonify({"message": "Started - the brief appears in the Inbox in about 3 minutes."})
+
+
+@app.get("/sites/<name>/")
+@app.get("/sites/<name>/<path:sub>")
+def site_static(name, sub="index.html"):
+    """Preview of a static website Kakarot built (served from its project folder)."""
+    pdir = coder.code_path(name)
+    if sub.endswith("/") or os.path.isdir(os.path.join(pdir, sub)):
+        sub = sub.rstrip("/") + "/index.html"
+    return send_from_directory(pdir, sub.lstrip("/"))
+
+
+@app.route("/apps/<name>/", defaults={"sub": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+@app.route("/apps/<name>/<path:sub>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+def site_app(name, sub):
+    """Preview of a Flask web app Kakarot built: started on demand and passed through this link."""
+    try:
+        body, status, headers = sites.proxy(name, sub, request)
+    except Exception as e:
+        return Response(f"<h2>The app '{name}' could not start</h2><pre>{e}</pre>", 500, mimetype="text/html")
+    return Response(body, status, headers)
+
+
+@app.get("/api/websites")
+def api_websites():
+    out = []
+    for d in sorted(os.listdir(coder.CODE_DIR)):
+        sp = sites.spec_of(d) if os.path.isdir(os.path.join(coder.CODE_DIR, d)) else None
+        if sp:
+            out.append({"name": d, "title": sp.get("title", d), "type": sp.get("type"), "summary": sp.get("summary", ""),
+                        "link": sites.preview_path(d)})
+    return jsonify(out)
+
+
+@app.post("/api/websites")
+def api_website_new():
+    b = request.json or {}
+    if not (b.get("request") or "").strip():
+        return jsonify({"error": "describe the website"}), 400
+    return jsonify({"message": sitebuilder.build_website(b["request"].strip())})
 
 
 @app.get("/api/selfupdate")

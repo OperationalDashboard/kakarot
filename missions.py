@@ -51,9 +51,11 @@ def _save(mid, **kw):
     db.x(f"UPDATE missions SET {', '.join(f'{k}=?' for k in kw)} WHERE id=?", (*kw.values(), mid))
 
 
-def start(goal):
-    mid = db.x("INSERT INTO missions(goal, status, plan, log, result, created, updated) VALUES(?,?,?,?,?,?,?)",
-               (goal.strip(), "queued", "[]", "[]", "", db.now(), db.now()))
+def start(goal, kind="agent", data=None):
+    mid = db.x("INSERT INTO missions(goal, status, plan, log, result, created, updated, kind, data) "
+               "VALUES(?,?,?,?,?,?,?,?,?)",
+               (goal.strip(), "queued", "[]", "[]", "", db.now(), db.now(), kind,
+                json.dumps(data or {}, ensure_ascii=False)))
     _ensure_worker()
     _wake.set()
     return mid
@@ -130,8 +132,13 @@ def _loop():
             _wake.clear()
             continue
         mid = rows[0]["id"]
+        kind = (db.q("SELECT kind FROM missions WHERE id=?", (mid,)) or [{}])[0].get("kind") or "agent"
         try:
-            _run_mission(mid)
+            if kind.startswith("website"):
+                import sitebuilder
+                sitebuilder.run(mid)
+            else:
+                _run_mission(mid)
         except Exception as e:
             log.exception("mission %s failed", mid)
             _save(mid, status="failed", result=f"Mission failed: {e}")

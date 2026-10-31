@@ -81,6 +81,11 @@ def init():
                                 ("Earlier chats", now(), now()))
                 c.execute("UPDATE messages SET conversation_id=? WHERE conversation_id IS NULL", (cur.lastrowid,))
             c.execute("CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, id)")
+            mcols = _columns(c, "missions")
+            if "kind" not in mcols:
+                c.execute("ALTER TABLE missions ADD COLUMN kind TEXT DEFAULT 'agent'")
+            if "data" not in mcols:
+                c.execute("ALTER TABLE missions ADD COLUMN data TEXT")
             c.commit()
         finally:
             c.close()

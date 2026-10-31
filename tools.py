@@ -427,5 +427,6 @@ import missions  # noqa: E402,F401    big background jobs
 import monitor  # noqa: E402,F401     morning brief + website watchdog
 import coder  # noqa: E402,F401      write / run / fix real programs
 import selfupdate  # noqa: E402,F401 nightly learning, new versions, brain refresh
+import sitebuilder  # noqa: E402,F401 complete websites: plan, write, browser-test, fix, preview
 import plugins  # noqa: E402         abilities Kakarot built for itself (approved by the user)
 plugins.load_all()

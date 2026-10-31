@@ -45,5 +45,7 @@
     "refresh_models_day": "sun",
     "build_tools": true
   },
-  "max_lessons": 40
+  "max_lessons": 40,
+  "site_fix_rounds": 4,
+  "site_visual_check": true
 }

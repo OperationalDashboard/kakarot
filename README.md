@@ -46,6 +46,20 @@ you ask it to do.
 * **🧠 Refreshes its brains weekly (Sunday 05:00).** It downloads newer versions of the models you already have.
 * **🧩 Builds its own new abilities.** When it notices something it couldn't do (or when you say "build yourself a tool to …"), its coding brain writes a new tool, tests that it loads, and puts it in **Status → New abilities**. Nothing new runs until you tap **Approve**. Switch abilities off there any time.
 
+## Builds websites for you
+
+Just describe it: *"I want a modern website for my restaurant with a menu, photo gallery, table booking and a contact page. Warm colors, English and Bangla."* You can also attach your logo or photos with 📎, or use **Missions → 🌐 Build website**.
+
+Kakarot then works in the background (Missions tab):
+1. **Plans** the site: pages, features, colors and fonts, and every file. It picks a plain website (HTML/CSS/JS, can be hosted anywhere) or a full web app (Flask + database) when you need logins, bookings, an admin panel or saved data.
+2. **Writes** every file with the coding brain. Each file sees the files it must match, so class names, links and routes line up.
+3. **Tests** it in a real hidden browser and finds broken links, missing pages, JavaScript errors, server crashes and empty pages.
+4. **Fixes** each problem with the exact error, then tests again (up to 4 rounds).
+5. **Looks** at screenshots (computer and phone) with the picture brain, and polishes the design.
+6. **Delivers** a live link (`/sites/<name>/` or `/apps/<name>/`) that also works on your phone through your Kakarot link, plus a `.zip` ready to upload to your hosting (for example Namecheap cPanel → File Manager → public_html). Web apps also get `run-site.bat`.
+
+To change it later: *"update my website green_line: add a fares page and make the header dark green"*. A typical site takes about 30–90 minutes with the 14B coding brain on this PC.
+
 ## Writes real code
 
 Ask for any program: "Write a Python script that merges all Excel files in a folder and test it", "Make a small website for my bus counter", "Write a Telegram bot that…". Kakarot creates a project in `Documents\KakarotWorkspace\code\<project>`. Its **coding brain** (`qwen2.5-coder:14b`) writes each file, then Kakarot runs the code and the tests, reads the errors and fixes them until it works. Each project gets its own Python environment (`.venv`), so packages never affect Kakarot.
