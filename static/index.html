@@ -31,7 +31,7 @@
   .card b{display:block;margin-bottom:2px}
   .card small{color:var(--muted)}
   .card .x{float:right;background:none;border:0;color:var(--muted);cursor:pointer;font-size:14px}
-  .card pre{white-space:pre-wrap;margin:6px 0 0;font:inherit}
+  .card pre{white-space:pre-wrap;word-break:break-word;margin:6px 0 0;font:inherit}
   .done{opacity:.5;text-decoration:line-through}
   .conv{display:flex;align-items:center;gap:6px;padding:9px 10px;border-radius:10px;cursor:pointer;font-size:13px;margin-bottom:4px;border:1px solid transparent}
   .conv:hover{background:var(--bg)}
@@ -124,6 +124,7 @@
 </main>
 <script>
 const $ = s => document.querySelector(s);
+const linkify = h => h.replace(/(\/(?:sites|apps)\/[\w.-]+\/)/g, '<a href="$1" target="_blank">$1</a>');
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const api = async (u, o={}) => { const r = await fetch(u, {headers:{"Content-Type":"application/json"}, ...o}); if(r.status === 401){ location.href = "/login"; throw new Error("locked"); } return r.json(); };
 let tab = "chats", lastInbox = null, conv = null;
@@ -139,14 +140,15 @@ const EXAMPLES = [
   "What do my files say about the bus rent agreement?",
   "Is lalsobujdata.site up right now?",
   "Write a Python program that reads my sales Excel and makes a monthly chart, and test it",
-  "Build yourself a tool to convert BDT to USD with today's rate"
+  "Build yourself a tool to convert BDT to USD with today's rate",
+  "I want a modern website for my restaurant with menu, gallery, table booking and contact page"
 ];
 
 function addMsg(role, text){
   $("#chat").querySelector(".empty")?.remove();
   const d = document.createElement("div"); d.className = "msg " + role;
   if(role === "user") text = String(text).replace(/\n*\[Attached file: [^\]]*?([^\\/\]]+)\]/g, "\n📎 $1").trim();
-  d.innerHTML = `<div class="b">${esc(text)}</div>`; $("#chat").append(d);
+  d.innerHTML = `<div class="b">${linkify(esc(text))}</div>`; $("#chat").append(d);
   $("#chat").scrollTop = 1e9; return d;
 }
 function addSteps(steps){
@@ -161,7 +163,7 @@ function showEmpty(){
   $("#chat").querySelectorAll(".chips button").forEach(b => b.onclick = () => { $("#t").value = b.textContent; $("#t").focus(); });
 }
 
-const LABEL = {web_open:"Opening website", web_click:"Clicking", web_type:"Typing", web_select:"Choosing an option", web_read:"Reading the page", web_scroll:"Scrolling", web_screenshot:"Taking a screenshot", web_search:"Searching the web", fetch_page:"Reading a page", browse_page:"Opening a page", look_at_image:"Looking at the picture", search_my_files:"Searching your files", index_my_files:"Indexing your files", read_file:"Reading a file", write_file:"Writing a file", create_excel:"Making an Excel file", create_word:"Making a Word file", create_pdf:"Making a PDF", run_command:"Asking to run a command", open_file:"Asking to open a file", lalsobuj_trip_report:"Checking every Lal Sobuj route (about 3 min)", lalsobuj_route_trips:"Checking the route", lalsobuj_morning_brief:"Making the morning brief (about 3 min)", start_mission:"Starting a mission", website_status:"Checking your websites", set_reminder:"Setting a reminder", schedule_task:"Scheduling", remember:"Remembering"};
+const LABEL = {web_open:"Opening website", web_click:"Clicking", web_type:"Typing", web_select:"Choosing an option", web_read:"Reading the page", web_scroll:"Scrolling", web_screenshot:"Taking a screenshot", web_search:"Searching the web", fetch_page:"Reading a page", browse_page:"Opening a page", look_at_image:"Looking at the picture", search_my_files:"Searching your files", index_my_files:"Indexing your files", read_file:"Reading a file", write_file:"Writing a file", create_excel:"Making an Excel file", create_word:"Making a Word file", create_pdf:"Making a PDF", run_command:"Asking to run a command", open_file:"Asking to open a file", lalsobuj_trip_report:"Checking every Lal Sobuj route (about 3 min)", lalsobuj_route_trips:"Checking the route", lalsobuj_morning_brief:"Making the morning brief (about 3 min)", start_mission:"Starting a mission", build_website:"Starting the website builder", update_website:"Starting the website update", check_website:"Testing the website", website_status:"Checking your websites", set_reminder:"Setting a reminder", schedule_task:"Scheduling", remember:"Remembering"};
 const stepText = (tool, args) => { const a = args?.url || args?.path || args?.query || args?.question || args?.goal || args?.text || ""; return (LABEL[tool] || tool) + (a ? ": " + String(a).slice(0, 70) : ""); };
 let attached = [];
 function paintFiles(){
@@ -204,7 +206,7 @@ async function send(e){
       else if(ev.type === "token"){ words += ev.text; bub.classList.remove("thinking"); bub.textContent = words; $("#chat").scrollTop = 1e9; }
       else if(ev.type === "step_start"){ words = ""; bub.classList.add("thinking"); bub.textContent = "Working on it…"; lastLine = document.createElement("div"); lastLine.textContent = "⏳ " + stepText(ev.tool, ev.args); live.append(lastLine); $("#chat").scrollTop = 1e9; }
       else if(ev.type === "step_done"){ if(lastLine){ lastLine.textContent = lastLine.textContent.replace("⏳", ev.ok ? "✓" : "✗"); lastLine.className = ev.ok ? "ok" : "bad"; } }
-      else if(ev.type === "done"){ got = true; live.remove(); bub.classList.remove("thinking"); bub.textContent = ev.reply; addSteps(ev.steps); }
+      else if(ev.type === "done"){ got = true; live.remove(); bub.classList.remove("thinking"); bub.innerHTML = linkify(esc(ev.reply)); addSteps(ev.steps); }
       else if(ev.type === "error"){ got = true; live.remove(); wait.remove(); addMsg("err", ev.error + (ev.hint ? "\n\n" + ev.hint : "")); }
     };
     while(true){
@@ -291,13 +293,15 @@ async function renderSide(){
     s.innerHTML = notes.map(n => `<div class="card ${n.done?"done":""}" data-id="${n.id}" style="cursor:pointer">${esc(n.text)}<br><small>#${n.id} · ${esc(n.created)}</small></div>`).join("") || `<small>No notes yet. Click a note to tick it off.</small>`;
     s.querySelectorAll(".card").forEach(c => c.onclick = async () => { await api(`/api/notes/${c.dataset.id}/toggle`, {method:"POST"}); renderSide(); });
   } else if(tab === "missions"){
-    const ms = await api("/api/missions");
+    const [ms, webs] = await Promise.all([api("/api/missions"), api("/api/websites")]);
     const icon = {queued:"⏳", running:"⚙️", done:"✅", failed:"❌", cancelled:"⛔"};
     const keep = s.querySelector("#goal")?.value || "";
-    s.innerHTML = `<div class="card"><b>New mission</b><small>A big job Kakarot plans and does on its own in the background. The result goes to your Inbox.</small><div class="mini"><textarea id="goal" placeholder="e.g. Compare bus fares Dhaka to Chittagong from 4 companies and make an Excel sheet"></textarea></div><div class="mini"><button class="btn" id="go">Start mission</button></div></div>` +
+    s.innerHTML = `<div class="card"><b>New mission</b><small>A big job Kakarot plans and does on its own in the background. The result goes to your Inbox.</small><div class="mini"><textarea id="goal" placeholder="e.g. A modern website for my bus company with routes, fares, online booking and an admin page. Green and white, English and Bangla."></textarea></div><div class="mini"><button class="btn" id="web">🌐 Build website</button><button class="ghost" id="go">Start mission</button></div></div>` +
+      (webs.length ? `<div class="sec">Your websites</div>` + webs.map(w => `<div class="card"><b>🌐 ${esc(w.title)}</b><small>${esc(w.type === "flask" ? "web app" : "website")} · ${esc(w.name)}</small><div class="mini"><a class="btn" href="${esc(w.link)}" target="_blank" style="text-decoration:none">Open</a></div></div>`).join("") + `<div class="sec">Missions</div>` : "") +
       (ms.map(m => { const n = m.plan.length, d = m.done_steps, pct = n ? Math.round(100 * d / n) : (m.status === "done" ? 100 : 3);
-        return `<div class="card">${["queued","running"].includes(m.status) ? `<button class="x" data-id="${m.id}" title="Cancel">✕</button>` : ""}<b>${icon[m.status] || ""} ${esc(m.goal)}</b><small>#${m.id} · ${esc(m.status)} · ${n ? `step ${Math.min(d + (m.status === "running" ? 1 : 0), n)} of ${n}` : "planning…"} · ${esc(m.updated)}</small>${m.status !== "done" ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}${n ? `<details><summary>Plan & step results</summary><ol>${m.plan.map((p, i) => `<li class="${i < d ? "d" : ""}">${esc(p)}${m.log[i] ? `<pre>${esc(m.log[i].result.slice(0, 700))}</pre>` : ""}</li>`).join("")}</ol></details>` : ""}${m.result ? `<pre>${esc(m.result)}</pre>` : ""}</div>`; }).join("") || `<small>No missions yet.</small>`);
+        return `<div class="card">${["queued","running"].includes(m.status) ? `<button class="x" data-id="${m.id}" title="Cancel">✕</button>` : ""}<b>${icon[m.status] || ""} ${esc(m.goal)}</b><small>#${m.id} · ${esc(m.status)} · ${n ? `step ${Math.min(d + (m.status === "running" ? 1 : 0), n)} of ${n}` : "planning…"} · ${esc(m.updated)}</small>${m.status !== "done" ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}${n ? `<details><summary>Plan & step results</summary><ol>${m.plan.map((p, i) => `<li class="${i < d ? "d" : ""}">${esc(p)}${m.log[i] ? `<pre>${esc(m.log[i].result.slice(0, 700))}</pre>` : ""}</li>`).join("")}</ol></details>` : ""}${m.result ? `<pre>${linkify(esc(m.result))}</pre>` : ""}</div>`; }).join("") || `<small>No missions yet.</small>`);
     $("#goal").value = keep;
+    $("#web").onclick = async () => { const g = $("#goal").value.trim(); if(!g) { $("#goal").focus(); return; } $("#goal").value = ""; await api("/api/websites", {method:"POST", body:JSON.stringify({request:g})}); renderSide(); };
     $("#go").onclick = async () => { const g = $("#goal").value.trim(); if(!g) return; $("#goal").value = ""; await api("/api/missions", {method:"POST", body:JSON.stringify({goal:g})}); renderSide(); };
     s.querySelectorAll(".x").forEach(b => b.onclick = async () => { if(!confirm("Cancel this mission?")) return; await api(`/api/missions/${b.dataset.id}/cancel`, {method:"POST"}); renderSide(); });
   } else if(tab === "status"){
