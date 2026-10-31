@@ -85,6 +85,29 @@
   .mini textarea{height:64px;resize:vertical}
   .btn{background:var(--accent);color:var(--accent-ink);border:0;border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
   .card ol{margin:6px 0 0;padding-left:18px} .card li.d{color:var(--accent)}
+  .pill{display:inline-block;border-radius:10px;padding:0 7px;font-size:11.5px;font-weight:700;color:#fff;background:var(--muted);vertical-align:1px}
+  .pill.g{background:#2f9e5f}.pill.y{background:#c99a12}.pill.r{background:var(--warn)}
+  .tag{display:inline-block;border:1px solid var(--line);border-radius:8px;padding:0 6px;font-size:11px;color:var(--muted);margin-right:4px}
+  .wrap{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .wrap .btn,.wrap .ghost{font-size:12.5px;padding:5px 10px;text-decoration:none}
+  select{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;font-size:13px;background:var(--panel);color:var(--ink);min-width:0}
+  #modal{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.45);align-items:center;justify-content:center;padding:18px}
+  #modal.on{display:flex}
+  #modal .box{background:var(--panel);color:var(--ink);border-radius:14px;width:min(860px,100%);max-height:100%;overflow:auto;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.3)}
+  #modal h2{margin:0 0 2px;font-size:19px} #modal h3{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:18px 0 6px}
+  #modal .top{display:flex;gap:10px;align-items:flex-start} #modal .top .x{margin-left:auto;font-size:20px;background:none;border:0;color:var(--muted);cursor:pointer}
+  .scores{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px 14px;font-size:12.5px}
+  .scores div span{float:right;color:var(--muted)}
+  .iss{border-top:1px solid var(--line);padding:7px 0;font-size:13px} .iss:first-child{border-top:0}
+  .iss small{display:block;color:var(--muted)} .iss code{font-size:12px;background:var(--code);padding:0 4px;border-radius:4px}
+  .shots{display:flex;gap:10px;margin-top:6px} .shots img{max-height:170px;border:1px solid var(--line);border-radius:8px;max-width:70%}
+  .hist{font-size:13px;border-top:1px solid var(--line);padding:6px 0;display:flex;gap:8px;align-items:flex-start}
+  .hist div{flex:1;min-width:0} .hist small{color:var(--muted);display:block}
+  pre.diff{background:var(--code);padding:8px;border-radius:8px;max-height:320px;overflow:auto;font-size:12px;white-space:pre}
+  .form{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px} .form input{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;font-size:13px;background:var(--panel);color:var(--ink);min-width:0}
+  .form label{font-size:12px;color:var(--muted);display:flex;gap:5px;align-items:center} .form .full{grid-column:1/-1}
+  .msgline{font-size:12.5px;margin-top:6px;white-space:pre-wrap}
+  @media (max-width:800px){ #modal{padding:0} #modal .box{border-radius:0;height:100%} .form{grid-template-columns:1fr} }
   #menu{display:none;background:none;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:4px 10px;font-size:16px;cursor:pointer}
   #shade{display:none}
   @media (max-width:800px){
@@ -108,6 +131,7 @@
     <button data-t="chats" class="on">Chats</button>
     <button data-t="inbox">Inbox<span id="badge"></span></button>
     <button data-t="missions">Missions</button>
+    <button data-t="websites">Websites<span id="badge4"></span></button>
     <button data-t="jobs">Scheduled</button>
     <button data-t="notes">Notes</button>
     <button data-t="memory">Memory</button>
@@ -115,6 +139,7 @@
   </div>
   <div id="side"></div>
 </aside>
+<div id="modal"><div class="box" id="mbox"></div></div>
 <main>
   <div id="shade"></div>
   <header><button id="menu" title="Chats, inbox, schedules, notes">☰<span id="badge2"></span></button><span id="title">Chat</span><span id="status">checking…</span><button class="ghost" id="clear">New chat</button></header>
@@ -124,7 +149,7 @@
 </main>
 <script>
 const $ = s => document.querySelector(s);
-const linkify = h => h.replace(/(\/(?:sites|apps)\/[\w.-]+\/)/g, '<a href="$1" target="_blank">$1</a>');
+const linkify = h => h.replace(/(https?:\/\/[^\s<"']+[^\s<"'.,;:)])|(\/(?:sites|apps)\/[\w.-]+\/)/g, m => `<a href="${m}" target="_blank" rel="noopener">${m}</a>`);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const api = async (u, o={}) => { const r = await fetch(u, {headers:{"Content-Type":"application/json"}, ...o}); if(r.status === 401){ location.href = "/login"; throw new Error("locked"); } return r.json(); };
 let tab = "chats", lastInbox = null, conv = null;
@@ -141,7 +166,9 @@ const EXAMPLES = [
   "Is lalsobujdata.site up right now?",
   "Write a Python program that reads my sales Excel and makes a monthly chart, and test it",
   "Build yourself a tool to convert BDT to USD with today's rate",
-  "I want a modern website for my restaurant with menu, gallery, table booking and contact page"
+  "I want a modern website for my restaurant with menu, gallery, table booking and contact page",
+  "Open my website lalsobujdata.site, check it and fix every problem you find",
+  "Check github.com/kakarotshi0-commits/greenwonderland and publish the fixes back to GitHub"
 ];
 
 function addMsg(role, text){
@@ -159,11 +186,11 @@ function addSteps(steps){
   $("#chat").append(d);
 }
 function showEmpty(){
-  $("#chat").innerHTML = `<div class="empty"><h2>What should I do?</h2>I run fully on this PC. I can use websites, make Excel/Word/PDF files, read photos 📎, search inside your documents, write and test real programs, learn something new every night, run big jobs as background Missions, watch your website and run PC commands with your OK. Turn on 🧠 Smart for hard jobs.<div class="chips">${EXAMPLES.map(e=>`<button>${esc(e)}</button>`).join("")}</div></div>`;
+  $("#chat").innerHTML = `<div class="empty"><h2>What should I do?</h2>I run fully on this PC. I can use websites, make Excel/Word/PDF files, read photos 📎, search inside your documents, write and test real programs, build websites and check / fix / publish your existing ones, learn something new every night, run big jobs as background Missions, watch your website and run PC commands with your OK. Turn on 🧠 Smart for hard jobs.<div class="chips">${EXAMPLES.map(e=>`<button>${esc(e)}</button>`).join("")}</div></div>`;
   $("#chat").querySelectorAll(".chips button").forEach(b => b.onclick = () => { $("#t").value = b.textContent; $("#t").focus(); });
 }
 
-const LABEL = {web_open:"Opening website", web_click:"Clicking", web_type:"Typing", web_select:"Choosing an option", web_read:"Reading the page", web_scroll:"Scrolling", web_screenshot:"Taking a screenshot", web_search:"Searching the web", fetch_page:"Reading a page", browse_page:"Opening a page", look_at_image:"Looking at the picture", search_my_files:"Searching your files", index_my_files:"Indexing your files", read_file:"Reading a file", write_file:"Writing a file", create_excel:"Making an Excel file", create_word:"Making a Word file", create_pdf:"Making a PDF", run_command:"Asking to run a command", open_file:"Asking to open a file", lalsobuj_trip_report:"Checking every Lal Sobuj route (about 3 min)", lalsobuj_route_trips:"Checking the route", lalsobuj_morning_brief:"Making the morning brief (about 3 min)", start_mission:"Starting a mission", build_website:"Starting the website builder", update_website:"Starting the website update", check_website:"Testing the website", website_status:"Checking your websites", set_reminder:"Setting a reminder", schedule_task:"Scheduling", remember:"Remembering"};
+const LABEL = {web_open:"Opening website", web_click:"Clicking", web_type:"Typing", web_select:"Choosing an option", web_read:"Reading the page", web_scroll:"Scrolling", web_screenshot:"Taking a screenshot", web_search:"Searching the web", fetch_page:"Reading a page", browse_page:"Opening a page", look_at_image:"Looking at the picture", search_my_files:"Searching your files", index_my_files:"Indexing your files", read_file:"Reading a file", write_file:"Writing a file", create_excel:"Making an Excel file", create_word:"Making a Word file", create_pdf:"Making a PDF", run_command:"Asking to run a command", open_file:"Asking to open a file", lalsobuj_trip_report:"Checking every Lal Sobuj route (about 3 min)", lalsobuj_route_trips:"Checking the route", lalsobuj_morning_brief:"Making the morning brief (about 3 min)", start_mission:"Starting a mission", build_website:"Starting the website builder", update_website:"Starting the website update", check_website:"Starting the website check", website_status:"Checking your websites", open_website:"Opening the website", fix_website:"Starting the fixes", publish_website:"Preparing to publish", undo_website:"Undoing", website_history:"Reading the history", refresh_website:"Getting the latest version", list_websites:"Listing websites", publishing_accounts:"Checking accounts", set_reminder:"Setting a reminder", schedule_task:"Scheduling", remember:"Remembering"};
 const stepText = (tool, args) => { const a = args?.url || args?.path || args?.query || args?.question || args?.goal || args?.text || ""; return (LABEL[tool] || tool) + (a ? ": " + String(a).slice(0, 70) : ""); };
 let attached = [];
 function paintFiles(){
@@ -222,7 +249,7 @@ async function send(e){
     live.remove();
     if(!got){ bub.classList.remove("thinking"); bub.textContent = "The connection dropped, but Kakarot keeps working and saves the answer. Open this chat again in a minute to see it."; wait.className = "msg err"; }
   }
-  clearInterval(ap); document.querySelectorAll(".approve").forEach(e => e.remove());
+  clearInterval(ap); document.querySelectorAll(".approve").forEach(e => { if(!e.querySelector("b")?.textContent.startsWith("🚀")) e.remove(); });
   $("#send").disabled = false; renderSide(); if(window.innerWidth > 800) $("#t").focus();
 }
 $("#f").onsubmit = send;
@@ -230,19 +257,25 @@ let smart = store.get("kakarot_smart") === "1";
 function paintSmart(){ $("#smart").classList.toggle("on", smart); }
 $("#smart").onclick = () => { smart = !smart; store.set("kakarot_smart", smart ? "1" : null); paintSmart(); };
 paintSmart();
-async function checkApprovals(){
+function publishCard(t, reason){
+  const files = t.files || [];
+  return `<b>🚀 ${t.undo ? "Undo the publish of" : "Publish"} ${esc(t.title || t.name)}?</b><small>${esc(reason || "")}</small><code>To: ${esc(t.dest)}\n${t.undo ? "Puts the earlier version back" : `${t.count} changed file(s)${t.total ? " of " + t.total : ""}`}${files.length ? ":\n" + files.slice(0, 15).map(f => "• " + f).join("\n") + (files.length > 15 ? `\n…and ${files.length - 15} more` : "") : ""}</code>${(t.warnings || []).map(w => `<small>⚠️ ${esc(w)}</small><br>`).join("")}<small>Server files are backed up first; you can undo it later.</small><div class="row"><button class="yes">Approve</button><button class="no">Deny</button></div>`;
+}
+async function checkApprovals(onlyPublish){
   let list; try{ list = await api("/api/approvals"); }catch(e){ return; }
+  if(onlyPublish) list = list.filter(a => a.kind === "publish");
   for(const a of list){
     if(document.getElementById("ap" + a.id)) continue;
     const d = document.createElement("div"); d.className = "approve"; d.id = "ap" + a.id;
-    if(a.kind === "tool"){ const t = JSON.parse(a.detail); d.innerHTML = `<b>🧩 Kakarot built a new ability: ${esc(t.name)}</b><small>${esc(a.reason)}</small><details><summary>Show the code</summary><code>${esc(t.code)}</code></details><div class="row"><button class="yes">Approve</button><button class="no">Deny</button></div>`; }
+    if(a.kind === "publish"){ const t = JSON.parse(a.detail); d.innerHTML = publishCard(t, a.reason); }
+    else if(a.kind === "tool"){ const t = JSON.parse(a.detail); d.innerHTML = `<b>🧩 Kakarot built a new ability: ${esc(t.name)}</b><small>${esc(a.reason)}</small><details><summary>Show the code</summary><code>${esc(t.code)}</code></details><div class="row"><button class="yes">Approve</button><button class="no">Deny</button></div>`; }
     else d.innerHTML = `<b>⚠️ Kakarot wants to ${a.kind === "open" ? "open this file" : "run this command"} on your PC</b><code>${esc(a.detail)}</code><small>Why: ${esc(a.reason)}</small><div class="row"><button class="yes">Approve</button><button class="no">Deny</button></div>`;
-    const answer = async ok => { d.querySelectorAll("button").forEach(b => b.disabled = true); await api("/api/approvals/" + a.id, {method:"POST", body:JSON.stringify({approve: ok})}); d.remove(); };
+    const answer = async ok => { d.querySelectorAll("button").forEach(b => b.disabled = true); await api("/api/approvals/" + a.id, {method:"POST", body:JSON.stringify({approve: ok})}); d.remove(); if(a.kind === "publish" && ok) addMsg("assistant", "🚀 Publishing started - follow it in the Websites tab. The result arrives in your Inbox."); if(tab === "websites") renderSide(); };
     d.querySelector(".yes").onclick = () => answer(true);
     d.querySelector(".no").onclick = () => answer(false);
     $("#chat").append(d); $("#chat").scrollTop = 1e9;
   }
-  document.querySelectorAll(".approve").forEach(e => { if(!list.some(a => "ap" + a.id === e.id)) e.remove(); });
+  if(!onlyPublish) document.querySelectorAll(".approve").forEach(e => { if(!list.some(a => "ap" + a.id === e.id)) e.remove(); });
 }
 $("#t").addEventListener("keydown", e => { if(e.key === "Enter" && !e.shiftKey){ send(e); } });
 $("#menu").onclick = () => document.body.classList.add("open");
@@ -304,6 +337,8 @@ async function renderSide(){
     $("#web").onclick = async () => { const g = $("#goal").value.trim(); if(!g) { $("#goal").focus(); return; } $("#goal").value = ""; await api("/api/websites", {method:"POST", body:JSON.stringify({request:g})}); renderSide(); };
     $("#go").onclick = async () => { const g = $("#goal").value.trim(); if(!g) return; $("#goal").value = ""; await api("/api/missions", {method:"POST", body:JSON.stringify({goal:g})}); renderSide(); };
     s.querySelectorAll(".x").forEach(b => b.onclick = async () => { if(!confirm("Cancel this mission?")) return; await api(`/api/missions/${b.dataset.id}/cancel`, {method:"POST"}); renderSide(); });
+  } else if(tab === "websites"){
+    await renderWebsites(s);
   } else if(tab === "status"){
     const [st, su] = await Promise.all([api("/api/system"), api("/api/selfupdate")]);
     const f = st.files, b = st.brief, v = su.version || {}, lc = su.last_check || {}, tl = su.tools;
@@ -335,6 +370,117 @@ async function renderSide(){
   }
 }
 
+
+// ---------------------------------------------------------------- Websites tab
+const scoreCls = n => n == null ? "" : n >= 85 ? "g" : n >= 60 ? "y" : "r";
+const ORIGIN = o => ({github: `GitHub ${o.owner}/${o.repo}`, ftp: `hosting ${o.account || ""}`, folder: "folder on this PC", url: "copy of live pages", built: "built by Kakarot"})[o?.type] || "built by Kakarot";
+const SEV = {high: "🔴", medium: "🟠", low: "🟡"};
+async function renderWebsites(s){
+  const [webs, accs, aps] = await Promise.all([api("/api/websites"), api("/api/accounts"), api("/api/approvals")]);
+  const ftps = accs.filter(a => a.kind === "ftp");
+  const keep = {src: s.querySelector("#wsrc")?.value || "", acc: s.querySelector("#wacc")?.value || ""};
+  const pend = aps.filter(a => a.kind === "publish");
+  s.innerHTML = `<div class="card"><b>Open an existing website</b><small>A live address (yoursite.com), a GitHub repo (owner/repo), or a folder on this PC. Kakarot copies it and checks everything. With your hosting's FTP account saved, it works on the REAL files.</small>
+    <div class="mini"><input id="wsrc" placeholder="lalsobujdata.site · github.com/me/site · C:\\Users\\me\\site"></div>
+    <div class="mini">${ftps.length ? `<select id="wacc"><option value="">From the address (auto)</option>${ftps.map(a => `<option value="${esc(a.key)}">Hosting: ${esc(a.label)}</option>`).join("")}</select>` : ""}<button class="btn" id="wopen">Open & check</button></div><div class="msgline" id="wmsg"></div></div>` +
+    (pend.length ? `<div class="sec">Waiting for your OK</div>` + pend.map(a => { const t = JSON.parse(a.detail); return `<div class="card approve" style="margin:0 0 10px">${publishCard(t, a.reason).replace('class="yes"', `class="yes" data-ap="${a.id}"`).replace('class="no"', `class="no" data-ap="${a.id}"`)}</div>`; }).join("") : "") +
+    `<div class="sec">Your websites</div>` + (webs.map(w => { const lc = w.last_check;
+      return `<div class="card"><b>🌐 ${esc(w.title)} ${lc ? `<span class="pill ${scoreCls(lc.score)}">${lc.score}</span>` : ""}</b><small>${esc(w.kind)} · ${esc(ORIGIN(w.origin))}${lc ? " · checked " + esc(lc.at.slice(0, 16)) : ""}</small>${w.live ? `<br><small>🌍 <a href="${esc(w.live)}" target="_blank" rel="noopener">${esc(w.live)}</a></small>` : ""}${w.busy ? `<br><small>⚙️ working on it (Mission #${w.busy})…</small>` : ""}${w.pending.length ? `<br><small>🚀 publish waiting for your OK</small>` : ""}
+        <div class="wrap"><a class="ghost" href="${esc(w.link)}" target="_blank">Preview</a><button class="btn" data-site="${esc(w.name)}">Manage</button></div></div>`; }).join("") || `<small>No websites yet. Open one above, or build a new one in Missions.</small>`) +
+    `<div class="sec">Publishing accounts</div>` + accountsHTML(accs);
+  $("#wsrc").value = keep.src; if($("#wacc")) $("#wacc").value = keep.acc;
+  $("#wopen").onclick = async () => { const src = $("#wsrc").value.trim(), acc = $("#wacc")?.value || ""; if(!src && !acc){ $("#wsrc").focus(); return; }
+    $("#wopen").disabled = true; const r = await api("/api/websites/open", {method:"POST", body:JSON.stringify({source:src, account:acc})}); $("#wmsg").textContent = r.error || r.message; $("#wopen").disabled = false; if(!r.error){ $("#wsrc").value = ""; setTimeout(renderSide, 1500); } };
+  s.querySelectorAll("[data-site]").forEach(b => b.onclick = () => openSite(b.dataset.site));
+  s.querySelectorAll("[data-ap]").forEach(b => b.onclick = async () => { b.disabled = true; await api("/api/approvals/" + b.dataset.ap, {method:"POST", body:JSON.stringify({approve: b.classList.contains("yes")})}); renderSide(); });
+  wireAccounts(s);
+}
+function accountsHTML(accs){
+  const has = k => accs.find(a => a.key === k);
+  const row = a => `<div class="hist"><div><b>${a.kind === "ftp" ? "🖥 " + esc(a.label) : a.kind === "github" ? "🐙 GitHub" : a.kind === "netlify" ? "🟩 Netlify" : "▲ Vercel"}</b><small>${a.kind === "ftp" ? `${esc(a.user)} @ ${esc(a.host)}:${a.port} → ${esc(a.folder)}${a.site_url ? " · " + esc(a.site_url) : ""} · ${a.secure ? "secure FTPS" : "plain FTP"}` : "token " + esc(Object.values(a.hint || {})[0] || "")}</small><small class="tres" data-k="${esc(a.key)}"></small></div><button class="ghost" data-test="${esc(a.key)}">Test</button><button class="ghost" data-del="${esc(a.key)}">✕</button></div>`;
+  return `<div class="card">${accs.map(row).join("") || "<small>Nothing saved yet. Passwords and tokens stay on this PC, locked with your Windows login, and are never shown to the AI.</small>"}
+    <details><summary>➕ Hosting (FTP / cPanel, e.g. Namecheap)</summary><small>cPanel → FTP Accounts shows the server, user name and port. The folder is usually public_html.</small><div class="form">
+      <input id="f_label" placeholder="Name (e.g. lalsobuj)"><input id="f_site" placeholder="Website address (lalsobujdata.site)">
+      <input id="f_host" placeholder="FTP server (ftp.yoursite.com)"><input id="f_port" placeholder="Port" value="21">
+      <input id="f_user" placeholder="User (name@yoursite.com)"><input id="f_pass" type="password" placeholder="Password" autocomplete="new-password">
+      <input id="f_folder" placeholder="Folder" value="public_html"><span></span>
+      <label><input type="checkbox" id="f_secure" checked> Secure (FTPS)</label><label><input type="checkbox" id="f_verify" checked> Check certificate</label>
+      <label class="full"><input type="checkbox" id="f_plain"> Allow plain FTP if secure fails (not recommended)</label>
+      <button class="btn full" id="f_save">Save hosting</button></div></details>
+    <details><summary>${has("github") ? "✏️ Change" : "➕ Add"} GitHub token</summary><small>github.com → Settings → Developer settings → Fine-grained tokens → give it your repositories with Contents: Read and write (+ Administration to create repos, Pages for GitHub Pages).</small><div class="form"><input id="g_tok" class="full" type="password" placeholder="github_pat_… or ghp_…" autocomplete="off"><button class="btn full" data-save="github">Save GitHub</button></div></details>
+    <details><summary>${has("netlify") ? "✏️ Change" : "➕ Add"} Netlify token</summary><small>app.netlify.com → User settings → Applications → Personal access tokens.</small><div class="form"><input id="n_tok" class="full" type="password" placeholder="Netlify token" autocomplete="off"><button class="btn full" data-save="netlify">Save Netlify</button></div></details>
+    <details><summary>${has("vercel") ? "✏️ Change" : "➕ Add"} Vercel token</summary><small>vercel.com → Account Settings → Tokens. Team id only if the project is in a team.</small><div class="form"><input id="v_tok" type="password" placeholder="Vercel token" autocomplete="off"><input id="v_team" placeholder="Team id (optional)"><button class="btn full" data-save="vercel">Save Vercel</button></div></details>
+    <div class="msgline" id="amsg"></div></div>`;
+}
+function wireAccounts(s){
+  const say = t => { $("#amsg").textContent = t; };
+  s.querySelectorAll("[data-test]").forEach(b => b.onclick = async () => { const out = s.querySelector(`.tres[data-k="${b.dataset.test}"]`); out.textContent = "Testing…"; const r = await api(`/api/accounts/${b.dataset.test}/test`, {method:"POST"}); out.textContent = r.error ? "❌ " + r.error : r.message; });
+  s.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => { if(!confirm("Remove this account from Kakarot?")) return; await api("/api/accounts/" + b.dataset.del, {method:"DELETE"}); renderSide(); });
+  $("#f_save").onclick = async () => { const v = id => $("#" + id).value.trim();
+    const r = await api("/api/accounts", {method:"POST", body:JSON.stringify({kind:"ftp", label:v("f_label") || v("f_site") || v("f_host"), site_url:v("f_site"), host:v("f_host"), port:+v("f_port") || 21, user:v("f_user"), password:$("#f_pass").value, folder:v("f_folder"), secure:$("#f_secure").checked, verify_cert:$("#f_verify").checked, allow_plain:$("#f_plain").checked})});
+    if(r.error) return say("❌ " + r.error); say("Saved. Testing the connection…"); const t = await api(`/api/accounts/${r.key}/test`, {method:"POST"}); say(t.error ? "Saved, but the test failed: " + t.error : t.message); setTimeout(renderSide, 2500); };
+  s.querySelectorAll("[data-save]").forEach(b => b.onclick = async () => { const k = b.dataset.save, tok = $("#" + k[0] + "_tok").value.trim(); if(!tok) return say("Paste the token first.");
+    const body = {kind:k, token:tok}; if(k === "vercel") body.team = $("#v_team").value.trim();
+    const r = await api("/api/accounts", {method:"POST", body:JSON.stringify(body)}); if(r.error) return say("❌ " + r.error);
+    const t = await api(`/api/accounts/${k}/test`, {method:"POST"}); say(t.error ? "Saved, but: " + t.error : t.message); setTimeout(renderSide, 2500); });
+}
+
+let siteOpen = null, siteTimer = null;
+function closeSite(){ siteOpen = null; clearInterval(siteTimer); $("#modal").classList.remove("on"); }
+$("#modal").onclick = e => { if(e.target.id === "modal") closeSite(); };
+async function openSite(name, keepMsg){
+  siteOpen = name; clearInterval(siteTimer);
+  const [d, tg] = await Promise.all([api("/api/websites/" + encodeURIComponent(name)), api("/api/publish-targets/" + encodeURIComponent(name))]);
+  if(d.error){ alert(d.error); return; }
+  const sp = d.spec, r = d.report, o = sp.origin || {}, msg = keepMsg ?? ($("#smsg")?.textContent || "");
+  const changeDraft = $("#schange")?.value || "";
+  const live = sp.live_url, gh = (sp.publish || {}).github;
+  const issues = r ? r.issues : [];
+  const lastUndoable = d.history.find(h => !h.undone);
+  const lastPub = d.deploys.find(x => !x.undo_of && !x.note && x.target);
+  $("#mbox").innerHTML = `<div class="top"><div><h2>${esc(sp.title)}</h2><small>${esc(d.kind)} · ${esc(ORIGIN(o.type ? o : {type:"built"}))} · ${d.files} files</small></div><button class="x" title="Close">✕</button></div>
+    <div class="wrap"><a class="btn" href="${esc(d.link)}" target="_blank">▶ Preview</a>${live ? `<a class="ghost" href="${esc(live)}" target="_blank" rel="noopener">🌍 Live site</a>` : ""}${gh ? `<a class="ghost" href="https://github.com/${esc(gh.repo)}" target="_blank" rel="noopener">📦 Code on GitHub</a>` : ""}</div>
+    ${d.busy ? `<div class="msgline">⚙️ Working on it (Mission #${d.busy}) - this page updates by itself.</div>` : ""}
+    ${(sp.notes || []).map(n => `<div class="msgline">ℹ️ ${esc(n)}</div>`).join("")}
+    <h3>Do something</h3>
+    <div class="wrap"><button class="btn" data-act="check">🔍 Check now</button>${live ? `<button class="ghost" data-act="checklive">🔍 Check the live site</button>` : ""}<button class="btn" data-act="fix">🛠 Fix problems</button>${(o.type === "github" || o.type === "ftp" || gh) ? `<button class="ghost" data-act="refresh">🔄 Get latest from ${o.type === "ftp" ? "hosting" : "GitHub"}</button>` : ""}</div>
+    <div class="mini"><textarea id="schange" placeholder="What should I change? e.g. Add a prices page with Dhaka-Sylhet 800 Tk, make the header green, fix the contact form…"></textarea></div>
+    <div class="wrap"><button class="btn" data-act="change">✏️ Make this change</button></div>
+    <h3>Publish</h3>
+    ${tg.targets && tg.targets.length ? `<div class="mini"><select id="starget">${tg.targets.map(t => `<option value="${esc(t.value)}" ${t.value === tg.default ? "selected" : ""}>${esc(t.label)}</option>`).join("")}</select><button class="btn" data-act="publish">🚀 Publish…</button></div>
+      <div class="mini" id="sghopts"><input id="srepo" placeholder="GitHub repo owner/name (optional)" value="${esc(gh ? gh.repo : "")}"><input id="sbranch" placeholder="branch (optional)" style="max-width:130px"></div>
+      <small>Only changed files are sent. You approve first; server files are backed up so you can undo.</small>` : `<small>Add GitHub, your hosting (FTP) or Netlify/Vercel under Publishing accounts (Websites tab) to publish.</small>`}
+    <div class="msgline" id="smsg"></div>
+    <h3>Check report ${r ? `<span class="pill ${scoreCls(r.score)}">${r.score}/100</span> <small>${esc(r.at)} · ${esc(r.where || "")} · ${r.pages} page(s)</small>` : ""}</h3>
+    ${r ? `<div class="scores">${Object.entries(r.scores).map(([a, v]) => `<div>${esc(a)} <span>${v}</span><div class="bar"><i style="width:${v}%;background:${v >= 85 ? "#2f9e5f" : v >= 60 ? "#c99a12" : "var(--warn)"}"></i></div></div>`).join("")}</div>
+      ${r.facts?.not_run ? `<div class="msgline">⚠️ ${esc(r.facts.not_run)}</div>` : ""}
+      <div class="shots"><img src="/api/websites/${encodeURIComponent(name)}/shot/desktop?${Date.now()}" onerror="this.remove()" alt="Desktop view"><img src="/api/websites/${encodeURIComponent(name)}/shot/phone?${Date.now()}" onerror="this.remove()" alt="Phone view"></div>
+      <div style="margin-top:8px">${issues.map(i => `<div class="iss">${SEV[i.sev]} <b style="display:inline">${esc(i.title)}</b> <span class="tag">${esc(i.area)}</span>${i.fix === "manual" ? `<span class="tag">needs you</span>` : i.fix === "auto" ? `<span class="tag">auto-fix</span>` : ""}<small>${i.file ? `<code>${esc(i.file)}</code> ` : ""}${i.pages.length ? "on " + esc(i.pages.slice(0, 4).join(", ")) : ""}${i.hint ? " · " + esc(i.hint) : ""}</small></div>`).join("") || "<small>✅ No problems found.</small>"}</div>` : `<small>Not checked yet - tap Check now.</small>`}
+    <h3>History</h3>
+    ${d.history.map(h => `<div class="hist"><div><b>${esc(h.label)}</b>${h.undone ? ' <span class="tag">undone</span>' : ""}<small>${esc(h.at)} · ${h.files.map(f => esc(f.path) + (f.binary ? "" : ` (+${f.added} −${f.removed})`)).slice(0, 6).join(", ")}${h.score_before != null ? ` · score ${h.score_before}→${h.score_after}` : ""}</small><pre class="diff" id="df_${esc(h.id)}" style="display:none"></pre></div><button class="ghost" data-diff="${esc(h.id)}">Diff</button>${lastUndoable && h.id === lastUndoable.id ? `<button class="ghost" data-undo="${esc(h.id)}">Undo</button>` : ""}</div>`).join("") || "<small>No changes yet.</small>"}
+    ${d.deploys.length ? `<h3>Publishes</h3>` + d.deploys.map(x => `<div class="hist"><div><b>${x.undo_of ? "↩️ Undo" : "🚀"} ${esc(x.target)} → ${esc(x.dest || "")}</b><small>${esc(x.at)} · ${x.note ? esc(x.note) : x.summary ? esc(x.summary) : (x.uploaded || []).length + " file(s)"}${x.live_url ? ` · <a href="${esc(x.live_url)}" target="_blank" rel="noopener">live</a>` : ""}</small></div>${lastPub && x.id === lastPub.id && x.target !== "vercel" ? `<button class="ghost" data-unpub="${esc(x.id)}">Undo</button>` : ""}</div>`).join("") : ""}`;
+  $("#modal").classList.add("on");
+  $("#smsg").textContent = msg; $("#schange").value = changeDraft;
+  const say = t => { $("#smsg").textContent = t; };
+  const ghBox = () => { const t = $("#starget")?.value || ""; if($("#sghopts")) $("#sghopts").style.display = t.startsWith("github") ? "flex" : "none"; };
+  if($("#starget")){ $("#starget").onchange = ghBox; ghBox(); }
+  $("#mbox .x").onclick = closeSite;
+  const act = async (a, body) => { say("…"); const r = await api(`/api/websites/${encodeURIComponent(name)}/${a}`, {method:"POST", body:JSON.stringify(body || {})}); say(r.error ? "❌ " + r.error : r.message); if(!r.error && a !== "undo") setTimeout(() => siteOpen === name && openSite(name, r.message), 1200); return r; };
+  $("#mbox").querySelectorAll("[data-act]").forEach(b => b.onclick = async () => {
+    const a = b.dataset.act;
+    if(a === "check") return act("check", {});
+    if(a === "checklive") return act("check", {live:true});
+    if(a === "fix") return act("fix", {});
+    if(a === "refresh") return act("refresh", {});
+    if(a === "change"){ const c = $("#schange").value.trim(); if(!c) return $("#schange").focus(); const r = await act("change", {change:c}); if(!r.error) $("#schange").value = ""; return; }
+    if(a === "publish"){ const t = $("#starget").value; const r = await act("publish", {target:t, repo:t.startsWith("github") ? $("#srepo").value.trim() : "", branch:t.startsWith("github") ? $("#sbranch").value.trim() : "", pages:t === "github-pages"}); if(!r.error) checkApprovals(true); }
+  });
+  $("#mbox").querySelectorAll("[data-diff]").forEach(b => b.onclick = async () => { const el = $("#df_" + b.dataset.diff); if(el.style.display === "block"){ el.style.display = "none"; return; } el.textContent = "loading…"; el.style.display = "block"; const r = await fetch(`/api/websites/${encodeURIComponent(name)}/diff/${b.dataset.diff}`); el.textContent = await r.text(); });
+  $("#mbox").querySelectorAll("[data-undo]").forEach(b => b.onclick = async () => { if(!confirm("Undo this change? (You can undo the undo too.)")) return; const r = await act("undo", {what:"change", id:b.dataset.undo}); openSite(name, r.error ? "❌ " + r.error : r.message); });
+  $("#mbox").querySelectorAll("[data-unpub]").forEach(b => b.onclick = async () => { const r = await act("undo", {what:"publish", id:b.dataset.unpub}); if(!r.error) checkApprovals(true); });
+  if(d.busy) siteTimer = setInterval(() => { if(siteOpen === name && !document.activeElement?.closest?.("#mbox")) openSite(name); }, 6000);
+}
+
 async function poll(){
   try{
     const items = await api("/api/inbox");
@@ -350,6 +496,9 @@ async function poll(){
     lastInbox = items.length ? items[0].id : 0;
     const aps = await api("/api/approvals"); const nt = aps.filter(x => x.kind === "tool").length;
     $("#badge3").innerHTML = nt ? `<span class="badge">${nt}</span>` : "";
+    const np = aps.filter(x => x.kind === "publish").length;
+    $("#badge4").innerHTML = np ? `<span class="badge">${np}</span>` : "";
+    if(np) checkApprovals(true);
   }catch(e){}
 }
 window.addEventListener("focus", () => document.title = "Kakarot");
@@ -365,7 +514,7 @@ window.addEventListener("focus", () => document.title = "Kakarot");
   const last = store.get("kakarot_conv");
   if(last) await openChat(+last); else showEmpty();
   renderSide(); poll(); setInterval(poll, 15000);
-  setInterval(() => { if(tab === "missions" && !document.activeElement?.closest?.("#side")) renderSide(); }, 6000);
+  setInterval(() => { if((tab === "missions" || tab === "websites") && !document.activeElement?.closest?.("#side")) renderSide(); }, 6000);
   if(window.Notification && Notification.permission === "default") Notification.requestPermission();
 })();
 </script>
