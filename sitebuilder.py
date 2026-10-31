@@ -26,6 +26,7 @@ import requests
 
 import coder
 import db
+import design
 import sites
 from config import CFG
 from tools import S, _cut, tool
@@ -50,7 +51,14 @@ Reply with ONLY this JSON:
 {{"name": "short_folder_name", "title": "Site title", "type": "static or flask",
   "summary": "2-3 sentences: what the site is and who it is for",
   "language": "language(s) of the site text, e.g. English, Bangla, or both",
-  "design": {{"style": "visual direction (e.g. clean corporate, bold modern, warm elegant)",
+  "inventory": ["8-12 things that belong ONLY to this client: its name and its meaning, street/city and what it
+                looks like, real numbers (prices, hours, years), materials, rituals, printed things (menu, ticket)"],
+  "idea": "One sentence: On this site, [something from the inventory] becomes [the main visual device].",
+  "live_thing": "ONE interactive thing a visitor can do with the real content (e.g. choose a dish and see the
+                 total, check if it's open right now, set an amount and see the real price)",
+  "photos": [{{"query": "short English search words for a REAL photo of this subject's world (e.g. 'Dhaka street
+               tea stall', 'green tea leaves close up')", "use": "where it goes (hero, about, gallery...)"}}],
+  "design": {{"style": "visual direction chosen for THIS subject (not 'clean and modern')",
              "colors": {{"primary": "#hex", "secondary": "#hex", "accent": "#hex", "background": "#hex",
                         "text": "#hex"}},
              "fonts": "Google Fonts names for headings and body",
@@ -67,15 +75,16 @@ Rules for "files":
   js/main.js, then each page .html. Typical flask order: requirements.txt, models.py/db.py, app.py,
   templates/base.html, the other templates, static/css/style.css, static/js/main.js.
 - 5 to 16 files. Keep each file under about 300 lines; split large CSS/JS/templates into more files.
-- Do NOT list images; use inline SVG icons/illustrations, CSS gradients, and photos from
-  https://picsum.photos/seed/<word>/<width>/<height> (or the user's own images if given).
+- Do NOT list images as files. Ask for 4-8 real photos in "photos" (they are downloaded for you into
+  images/photos/ with credits). Use the user's own images first if given. Icons: inline SVG in one stroke style.
 - Static sites: every link and asset path is RELATIVE (css/style.css, about.html) - never starting with '/'.
 - Flask apps: app.py reads the port from env PORT (default 5000) and runs on host 0.0.0.0, stores SQLite in the
   'instance' folder, creates tables and realistic sample data on first run, uses url_for() for EVERY link, form
   action, redirect and static file, and wraps app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1,
   x_prefix=1) (from werkzeug.middleware.proxy_fix). JavaScript fetch() calls use relative URLs. If there is a
   login/admin, create a default admin account (username admin, password admin123) and say so in the summary.
-"""
+
+""" + design.RULES.replace("{", "{{").replace("}", "}}") + "\n"
 
 FILE_PROMPT = """You are building this website. Write the file `{path}`.
 
@@ -89,13 +98,14 @@ THIS FILE: {path}
 Purpose: {purpose}
 
 {context}
+{photos}
+{design_rules}
 Requirements:
 - Complete and production quality: no placeholders, no "TODO", no "...", no lorem ipsum. Write real, convincing
   content for this specific business/purpose{lang}.
 - Match the other files EXACTLY: use the same CSS class names, element ids, JS function names, routes, template
   names, block names, form field names and database columns as shown above.
-- Design: modern and polished, follow the plan's colors and fonts, generous spacing, clear hierarchy, hover/focus
-  states, subtle transitions. Responsive and mobile-first (must look right at 360px wide; nav collapses to a menu
+- Design: follow the plan's idea, colors and fonts and the DESIGN RULES above exactly. Responsive and mobile-first (must look right at 360px wide; nav collapses to a menu
   button on phones). Accessible: semantic HTML, alt text, labels, good contrast.
 - Static sites use relative paths only. Flask templates use url_for() for every link and asset.
 Reply with ONLY the complete file in one code block."""
@@ -149,6 +159,23 @@ CURRENT FILE:
 Reply with the COMPLETE improved file in one code block."""
 
 # ---------------------------------------------------------------- helpers
+def _photo_note(spec):
+    """Tells the coding brain which real photos were downloaded for the site."""
+    ph = spec.get("photo_files") or []
+    if not ph:
+        return ("PHOTOS: none could be downloaded. Do NOT use placeholder photo sites. Use the user's images if any, "
+                "otherwise draw simple flat SVG pictures of the subject's real objects in the palette colours.")
+    flask = spec.get("type") == "flask"
+    lines = [f"- {p['file'].split('static/', 1)[1] if flask and p['file'].startswith('static/') else p['file']}"
+             f"  (for: {p['use']}; alt: {p['alt'][:80]})" for p in ph]
+    who = sorted({p["credit"].split(" by ", 1)[-1].split(" (")[0] for p in ph if " by " in p["credit"]})[:6]
+    return ("REAL PHOTOS downloaded for this site - use them (big, same crop ratio, object-fit: cover), with "
+            "meaningful alt text. " + ("Flask: url_for('static', filename=PATH). " if flask else
+                                       "Paths are relative to the site root. ") +
+            "Put a small credit line in the footer: \"Photos: " + ", ".join(who or ["Openverse contributors"]) +
+            " via Openverse (Creative Commons)\".\n" + "\n".join(lines))
+
+
 def _json(text):
     m = re.search(r"\{.*\}", text or "", flags=re.S)
     if not m:
@@ -284,6 +311,14 @@ def _browser_check(base, pages, shots_dir=None):
                         errs.append("The page shows almost no text (it may be broken or empty).")
                     if shots_dir is not None and i == 0:
                         os.makedirs(shots_dir, exist_ok=True)
+                        try:
+                            import design
+                            page.set_viewport_size({"width": 1440, "height": 900})
+                            page.wait_for_timeout(300)
+                            _write(os.path.join(shots_dir, "taste.json"), json.dumps(page.evaluate(design.TASTE_JS)))
+                            page.set_viewport_size({"width": 1280, "height": 900})
+                        except Exception as e:
+                            log.warning("taste check failed: %s", e)
                         d = os.path.join(shots_dir, "desktop.png")
                         page.screenshot(path=d, full_page=False)
                         page.set_viewport_size({"width": 390, "height": 844})
@@ -445,31 +480,77 @@ def _fix_round(pdir, spec, probs, missing, job, round_no):
     return fixed
 
 
+TASTE_IN_HTML = {"taste_eyebrow", "taste_emoji", "taste_icon_cards", "taste_numbering", "taste_accent_word",
+                 "taste_long_heads", "taste_placeholders", "taste_few_pictures"}
+
+
+class _Collect:
+    def __init__(self):
+        self.items = []
+
+    def add(self, area, sev, code, title, detail="", page=None, file=None, fix="ai", hint=""):
+        self.items.append((code, f"{title}" + (f" ({detail.splitlines()[0][:120]})" if detail and not
+                                                detail.startswith("Instead") else "") + (f". Instead: {hint}" if hint else "")))
+
+
+def taste_problems(shots_dir):
+    """The 'AI look' problems measured on the home page during the browser test (design.py)."""
+    import design
+    fp = os.path.join(shots_dir, "taste.json")
+    if not os.path.exists(fp):
+        return [], []
+    with open(fp, encoding="utf-8") as f:
+        d = json.load(f)
+    c = _Collect()
+    design.check(c, d, "/", None, "ai")
+    return [t for k, t in c.items if k not in TASTE_IN_HTML], [t for k, t in c.items if k in TASTE_IN_HTML]
+
+
 def _look_and_polish(pdir, spec, shots):
-    """Picture brain reviews screenshots; one polish pass on the main stylesheet if needed."""
+    """Picture brain reviews screenshots + measured design rules; polish the stylesheet and pages if needed."""
     import vision
     if not shots:
         return "No screenshots to check."
+    css_taste, html_taste = taste_problems(os.path.dirname(shots[0]))
     try:
         imgs = [vision.load_images(s)[0] for s in shots]
         raw = vision.ask_vision(imgs, LOOK_PROMPT.format(which="desktop view, then phone view"))
         review = _json(raw)
     except Exception as e:
-        return f"Visual check skipped ({e})."
+        review = {"score": None, "problems": [], "error": str(e)}
     score, problems = review.get("score"), [p for p in review.get("problems") or [] if isinstance(p, str)]
-    note = f"Picture brain score: {score}/10." + (" Problems: " + "; ".join(problems) if problems else "")
+    note = (f"Picture brain score: {score}/10." if score is not None else "Picture check skipped.") + \
+           (" Problems: " + "; ".join(problems) if problems else "")
+    if css_taste or html_taste:
+        note += f" Design rules: {len(css_taste) + len(html_taste)} AI-look problem(s) found."
     try:
         bad = float(score) < 8
     except (TypeError, ValueError):
         bad = bool(problems)
     css = next((f["path"] for f in spec.get("files", []) if f["path"].endswith(".css")), None)
-    if bad and problems and css and os.path.exists(os.path.join(pdir, *css.split("/"))):
+    if (bad and problems or css_taste) and css and os.path.exists(os.path.join(pdir, *css.split("/"))):
         fp = os.path.join(pdir, *css.split("/"))
         code = _ask_file(POLISH_PROMPT.format(path=css, spec=_short_spec(spec), code=_read(fp, 40000),
-                                              problems="\n".join(f"- {p}" for p in problems)))
+                                              problems="\n".join(f"- {p}" for p in problems + css_taste)))
         if len(code) > 0.6 * os.path.getsize(fp):  # never accept a stylesheet that lost most of its rules
             _write(fp, code)
             note += f" Polished {css}."
+    if html_taste:
+        pages = [f["path"] for f in spec.get("files", []) if f["path"].endswith(".html")][:4]
+        done = []
+        for path in pages:
+            fp = os.path.join(pdir, *path.split("/"))
+            if not os.path.exists(fp):
+                continue
+            old = _read(fp, 40000)
+            code = _ask_file(FIX_PROMPT.format(spec=_short_spec(spec), path=path, code=old,
+                                               problems="\n".join(f"- {p}" for p in html_taste),
+                                               context=_photo_note(spec)))
+            if len(code.strip()) >= 0.5 * len(old.strip()):
+                _write(fp, code)
+                done.append(path)
+        if done:
+            note += " Reworked " + ", ".join(done) + " to remove the AI look."
     return note
 
 
@@ -583,6 +664,10 @@ def run(mid):
                 shutil.copy2(a, os.path.join(pdir, "images", os.path.basename(a)))
             except Exception as e:
                 log.warning("asset copy failed: %s", e)
+        wants = [w for w in (spec.get("photos") or []) if isinstance(w, (dict, str))]
+        if wants:
+            spec["photo_files"] = design.gather_photos(
+                pdir, wants, folder="static/images/photos" if spec["type"] == "flask" else "images/photos")
         _write(os.path.join(pdir, SPEC_FILE), json.dumps(spec, ensure_ascii=False, indent=2))
         job.data.update(dir=pdir, name=name)
         db.x("UPDATE missions SET data=? WHERE id=?", (json.dumps(job.data, ensure_ascii=False), mid))
@@ -590,7 +675,9 @@ def run(mid):
                 ["Test in a real browser and fix", "Visual check", "Package and publish preview"]
         job.set_plan(steps)
         job.done("Plan the website", f"{spec.get('title')} ({spec['type']} site): {spec.get('summary', '')}\n"
+                                     f"Idea: {spec.get('idea', '-')}\nLive feature: {spec.get('live_thing', '-')}\n"
                                      f"Pages: {', '.join(p.get('title', '') for p in spec.get('pages', []))}\n"
+                                     f"Real photos found: {len(spec.get('photo_files') or [])}\n"
                                      f"Files: {len(spec['files'])}")
     with open(os.path.join(pdir, SPEC_FILE), encoding="utf-8") as f:
         spec = json.load(f)
@@ -604,9 +691,13 @@ def run(mid):
         if job.cancelled():
             return
         ctx = _context_for(pdir, f.get("depends_on") or [])
-        code = _ask_file(FILE_PROMPT.format(path=f["path"], spec=json.dumps(spec, ensure_ascii=False, indent=1)[:9000],
+        code = _ask_file(FILE_PROMPT.format(path=f["path"], spec=json.dumps({k: v for k, v in spec.items() if k not in ("photo_files", "photos")},
+                                                                ensure_ascii=False, indent=1)[:9000],
                                             file_list=_file_list(spec), purpose=f.get("purpose", ""),
-                                            context=ctx, lang=lang))
+                                            context=ctx, lang=lang,
+                                            photos=_photo_note(spec) if re.search(r"\.(html|css)$", f["path"]) else "",
+                                            design_rules=design.RULES if re.search(r"\.(html|css)$", f["path"])
+                                            else design.RULES_SHORT))
         _write(os.path.join(pdir, *f["path"].split("/")), code)
         job.done(step, f"{code.count(chr(10))} lines written.")
     # 3+4. test and fix
@@ -682,3 +773,45 @@ def build_website(request, name="", assets=""):
     return (f"Started building the website (Mission #{mid}). I'm planning it now, then I write about {n} files, test "
             f"everything in a real browser and fix problems. With the coding brain on this PC that takes roughly "
             f"30-90 minutes. Progress is in the Missions tab, and the live link will arrive in your Inbox.")
+
+
+FIGMA_LOOK = """This is a website design from Figma. Describe it from top to bottom so a developer can rebuild it exactly:
+each section in order, its layout (columns, alignment, sizes relative to the page width), where pictures sit,
+the colours and the type style (sizes, weights). Plain text, at most 25 lines."""
+
+
+@tool("build_website_from_figma",
+      "BUILD A WEBSITE FROM A FIGMA DESIGN: reads the design from the user's Figma link (layout, colours, fonts and "
+      "exact text) with their saved Figma token, then builds, tests and polishes the site like build_website.",
+      {"figma_link": S("The Figma link (figma.com/design/... ideally the link of one frame, with node-id)."),
+       "request": S("Optional extra wishes (pages, features, language, what the buttons should do)."),
+       "name": S("Optional short folder name.")}, ["figma_link"])
+def build_website_from_figma(figma_link, request="", name=""):
+    import missions
+    import vault
+    acc = vault.get("figma")
+    if not acc or not acc.get("token"):
+        return ("I need your Figma token first: Websites tab → Publishing accounts → Add Figma token "
+                "(figma.com → Settings → Security → Personal access tokens). Then send the link again.")
+    out_dir = os.path.join(coder.code_path("_figma"), time.strftime("%Y%m%d-%H%M%S"))
+    try:
+        summary, pngs = design.figma_read(figma_link, acc["token"], out_dir)
+    except Exception as e:
+        import vault as _v
+        return f"I couldn't read that Figma design: {_v.scrub(str(e))[:300]}"
+    look = ""
+    if pngs:
+        try:
+            import vision
+            look = vision.ask_vision([vision.load_images(pngs[0])[0]], FIGMA_LOOK) or ""
+        except Exception as e:
+            log.warning("figma vision failed: %s", e)
+    full = ((request.strip() + "\n\n") if request.strip() else "Build this website exactly as designed in Figma.\n\n") + \
+        "THE DESIGN TO BUILD (from Figma). Match its layout, colours, fonts and exact words. Where the Figma design " \
+        "and the general design rules differ, the Figma design wins.\n" + summary + \
+        ("\n\nWHAT THE DESIGN LOOKS LIKE (top to bottom):\n" + look[:3000] if look else "")
+    mid = missions.start(f"Build website from Figma: {(request or figma_link)[:120]}", kind="website",
+                         data={"request": full, "name": _slug(name) if name else "", "assets": [],
+                               "figma": figma_link, "design_ref": pngs[:1]})
+    return (f"Read your Figma design and started building it (Mission #{mid}). I'll write the files, test them in a "
+            f"real browser, compare against the design rules and polish. The live link arrives in your Inbox.")

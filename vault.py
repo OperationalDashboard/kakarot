@@ -21,6 +21,7 @@ KINDS = {
     "github": (["user"], ["token"]),
     "netlify": ([], ["token"]),
     "vercel": (["team"], ["token"]),
+    "figma": ([], ["token"]),
     "ftp": (["label", "host", "port", "user", "folder", "site_url", "secure", "verify_cert", "allow_plain"],
             ["password"]),
 }
@@ -194,4 +195,4 @@ def scrub(text):
                     text = text.replace(v, "•••")
     except Exception:
         pass
-    return re.sub(r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})", "•••", text)
+    return re.sub(r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|figd_[A-Za-z0-9_-]{20,})", "•••", text)

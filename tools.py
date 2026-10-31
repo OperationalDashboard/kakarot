@@ -66,7 +66,7 @@ CORE = ["list_files", "read_file", "write_file", "make_folder", "move_file", "tr
 GROUPS = [  # (name, tools or module names, keywords)
     ("websites", ["sitebuilder", "workshop"],
      r"web ?site|\bsite\b|web ?app|web ?page|landing|portfolio|publish|deploy|github|\brepo|hosting|\bftp|cpanel|"
-     r"namecheap|netlify|vercel|domain|\bseo\b|online|html|css|lalsobujdata|greenwonderland|"
+     r"namecheap|netlify|vercel|domain|\bseo\b|online|html|css|lalsobujdata|greenwonderland|figma|design|"
      r"\.(com|site|net|org|io|app|dev|bd|xyz|shop)\b"),
     ("lalsobuj", ["lalsobuj_trip_report", "lalsobuj_route_trips", "lalsobuj_morning_brief"],
      r"\bbus|\btrips?\b|route|\bseats?\b|ticket|lal ?sobuj|dhaka|sylhet|chatt?og|chittagong|noakhali|counter|"

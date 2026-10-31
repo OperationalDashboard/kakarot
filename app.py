@@ -359,6 +359,10 @@ def api_account_test(key):
             return {"message": f"✅ Signed in to Vercel as {u.get('username') or u.get('email', '?')}"}
         if key.startswith("ftp:"):
             return {"message": "✅ " + deploy.test_ftp(key)}
+        if key == "figma":
+            import design
+            me = design.figma_me((vault.get("figma") or {}).get("token", ""))
+            return {"message": f"✅ Signed in to Figma as {me.get('handle') or me.get('email', '?')}"}
         raise ValueError("unknown account")
     return _ws(go)
 

@@ -26,6 +26,7 @@ from urllib.parse import urljoin, urlparse, urldefrag
 
 import requests
 
+import design
 import siteproject as sp
 from config import BASE, CFG
 from tools import UA
@@ -151,7 +152,7 @@ class Report:
         for a in AREAS:
             pen = sum(WEIGHT[i["sev"]] * min(1 + (i["count"] - 1) * 0.15, 2) for i in issues if i["area"] == a)
             scores[a] = max(0, round(100 - pen))
-        if not self.facts.get("vision"):
+        if not self.facts.get("vision") and not self.facts.get("taste"):
             scores.pop("Design", None)
         if not self.facts.get("code_checked"):
             scores.pop("Code", None)
@@ -251,6 +252,9 @@ def cert_days(host, port=443):
 
 # ---------------------------------------------------------------- browser part
 def _browse(rep, base, max_pages, shots_dir, progress):
+    # a site Kakarot built gets the design rules applied when fixing; someone's existing site only gets design
+    # suggestions (fixed only when the user asks to improve the look) - its look is theirs.
+    taste_fix = "ai" if ((rep.spec or {}).get("origin") or {}).get("type") == "built" else "suggest"
     from playwright.sync_api import sync_playwright
     pdir, spec = rep.pdir, rep.spec
     queue, seen, titles, all_links = [_norm(base)], set(), {}, {}
@@ -348,6 +352,11 @@ def _browse(rep, base, max_pages, shots_dir, progress):
                         page.close()
                         continue
                     d = page.evaluate(PAGE_JS)
+                    try:  # the "made by AI" look: measured, not guessed (see design.py)
+                        design.check(rep, page.evaluate(design.TASTE_JS), pname, owner, taste_fix)
+                        rep.facts["taste"] = True
+                    except Exception as e:
+                        rep.facts["taste_error"] = str(e)[:200]
                     info.update(title=d["title"], requests=d["requests"], kb=round(d["bytes"] / 1024),
                                 load_ms=(d.get("timing") or {}).get("load"))
                     # ---- SEO
@@ -748,6 +757,15 @@ def latest(pdir):
         return None
     with open(os.path.join(d, fs[-1]), encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def can_fix(issue, focus=""):
+    """Should the automatic fixer work on this issue? Design suggestions only when the user asked about the look."""
+    if issue["fix"] == "manual":
+        return False
+    if issue["fix"] == "suggest":
+        return design.wants_design(focus)
+    return True
 
 
 def serious_keys(rep):

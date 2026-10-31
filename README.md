@@ -106,10 +106,21 @@ Each problem names the file most likely responsible and whether Kakarot can fix 
 - **GitHub:** a fine-grained token with *Contents: Read and write*, plus *Administration* to create repos and *Pages* for GitHub Pages.
 - **FTP/cPanel:** the details from cPanel → FTP Accounts. The server is often `ftp.yoursite.com` or `serverNNN.web-hosting.com`, the user looks like `name@yoursite.com`, and the folder is usually `public_html`.
 - **Netlify / Vercel:** a personal token.
+- **Figma:** a personal access token (figma.com → Settings → Security), to build sites from your designs.
 
 Passwords and tokens are saved only on this PC, **encrypted with your Windows login**. They are never shown to the AI and never written into chats or logs.
 
 Testing PHP sites on this PC needs PHP installed (optional). Without it, Kakarot checks the live site plus the code. React/Vite sites need Node.js to build.
+
+## Designs that don't look AI-made
+
+Kakarot's design rules come from three open-source design skills: Taste Skill, Impeccable, and Emil Kowalski's design-engineering skills. The originals and their licences are in `design_skills/`.
+
+- **The idea comes first.** Before building, Kakarot lists what belongs only to this business: its name, its street, its real prices and hours. It builds the page around one idea from that list and adds one useful interactive thing, such as "see the total" or "open right now?".
+- **Real photos.** Kakarot uses real, credited photographs from open collections (Openverse, commercial-use licences) instead of placeholder pictures. Credits go in the footer and in `images/photos/CREDITS.json`.
+- **Measured, not guessed.** Every check measures a page in a real browser for the "AI look": gradients, glass panels, eyebrow labels, emoji icons, rows of identical icon cards, violet buttons, 3-line headlines, too many fonts, slow or `ease-in` animations, animations from `scale(0)`, no reduced-motion version, and no press or focus states.
+- **Your look stays yours.** On sites Kakarot builds, these problems are fixed automatically. On your existing sites they show as **design tips**, and Kakarot only applies them when you ask ("improve the design of greenwonderland").
+- **Figma.** Send a Figma frame link ("build my site from this Figma: …"). Kakarot reads the layout, colours, fonts and exact text, then builds, tests and polishes the site.
 
 ## Writes real code
 

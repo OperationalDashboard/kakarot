@@ -213,9 +213,13 @@ def _m_check(job, p):
     rep = run_check(pdir, spec, p, live=live)
     job.done(job.plan[0], f"Score {rep['score']}/100")
     body = f"🔍 {spec['title']} - check ({rep.get('where')})\n\n{siteaudit.text(rep, 40)}"
-    fixable = sum(1 for i in rep["issues"] if i["fix"] != "manual")
+    fixable = sum(1 for i in rep["issues"] if siteaudit.can_fix(i))
+    tips = sum(1 for i in rep["issues"] if i["fix"] == "suggest")
     if fixable:
         body += f"\n\nI can try to fix {fixable} of these myself: say \"fix my website {name}\"."
+    if tips:
+        body += (f"\n🎨 {tips} design tip(s) (things that make a site look AI-made). Your current look is kept unless "
+                 f"you ask: say \"improve the design of {name}\" to apply them.")
     job.done("Report", "Done")
     _finish(job, f"🔍 {spec['title'][:40]}: {rep['score']}/100", body)
 
@@ -233,7 +237,7 @@ def _m_fix(job, p):
     for r in range(1, rounds + 1):
         if job.cancelled():
             return
-        todo = [i for i in rep["issues"] if i["fix"] != "manual"]
+        todo = [i for i in rep["issues"] if siteaudit.can_fix(i, focus)]
         if focus and focus.lower() not in ("all", "everything"):
             f = focus.lower()
             todo = [i for i in todo if f in (i["area"] + " " + i["title"] + " " + (i.get("file") or "")).lower()] or todo
@@ -262,7 +266,7 @@ def _m_fix(job, p):
             break
         rep = rep_new
     left_manual = [i for i in rep["issues"] if i["fix"] == "manual"]
-    left_other = [i for i in rep["issues"] if i["fix"] != "manual"]
+    left_other = [i for i in rep["issues"] if siteaudit.can_fix(i, focus)]
     body = [f"🛠 {spec['title']}: score {rep0['score']} → {rep['score']}/100"]
     if changes:
         body.append("Changed: " + "; ".join(f"{c['label']}: " + ", ".join(f['path'] for f in c["files"][:8])
@@ -607,7 +611,8 @@ def check_website(target, live=False):
       "FIX a website's problems automatically: check it, fix errors/links/SEO/accessibility/phone layout/speed, check "
       "again (several rounds). Changes that make things worse are undone automatically. Optional: publish after.",
       {"name": S("Website name (see list_websites)."),
-       "focus": S("Optional: only fix this kind of problem (e.g. 'errors', 'mobile', 'SEO', 'speed')."),
+       "focus": S("Optional: only fix this kind of problem (e.g. 'errors', 'mobile', 'SEO', 'speed', or 'design' to "
+                  "also apply the design tips that remove the AI-made look)."),
        "publish_to": S("Optional: where to publish after fixing (github, github-pages, netlify, vercel, an FTP "
                        "account, or 'online' for where it came from). The user still approves.")}, ["name"])
 def fix_website(name, focus="", publish_to=""):

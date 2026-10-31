@@ -337,8 +337,17 @@ def _windows(text, task, line_hints=None, radius=70):
 
 
 # ---------------------------------------------------------------- editing one file
+def _with_design(task):
+    """Design-related work gets Kakarot's design rules (design.py) so the result doesn't look AI-made."""
+    import design
+    if "Instead:" in task or design.wants_design(task):
+        return task + "\n\n" + design.RULES_SHORT
+    return task
+
+
 def edit_file(pdir, spec, ch, path, task, what="", line_hints=None, log=None):
     """Change one existing file. Returns a short result text; the file is restored if the edit failed."""
+    task = _with_design(task)
     fp = sp.abspath(pdir, path)
     old = sp.read_text(fp)
     kind = kind_text(spec)
@@ -404,6 +413,7 @@ def edit_file(pdir, spec, ch, path, task, what="", line_hints=None, log=None):
 
 
 def create_file(pdir, spec, ch, path, task, purpose, like=""):
+    task = _with_design(task)
     ctx = ""
     if like and os.path.isfile(os.path.join(pdir, *like.split("/"))):
         ctx = f"\nEXISTING FILE TO MATCH (`{like}`):\n```\n{sp.read_text(os.path.join(pdir, *like.split('/')), 12000)}\n```\n"
@@ -559,7 +569,8 @@ def _add_lang(html):
 def fix_issues(pdir, spec, ch, issues, focus="", log=None, max_files=8):
     """Fix the problems of a report. Returns list of result lines."""
     say = log or (lambda m: None)
-    todo = [i for i in issues if i["fix"] != "manual"]
+    import siteaudit
+    todo = [i for i in issues if siteaudit.can_fix(i, focus)]
     if focus:
         f = focus.lower()
         todo = [i for i in todo if f in (i["area"].lower() + " " + i["title"].lower() + " " + (i.get("file") or "").lower())
