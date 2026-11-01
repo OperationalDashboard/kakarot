@@ -159,7 +159,7 @@ const $ = s => document.querySelector(s);
 const linkify = h => h.replace(/(https?:\/\/[^\s<"']+[^\s<"'.,;:)])|(\/(?:sites|apps)\/[\w.-]+\/)/g, m => `<a href="${m}" target="_blank" rel="noopener">${m}</a>`);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const api = async (u, o={}) => { const r = await fetch(u, {headers:{"Content-Type":"application/json"}, ...o}); if(r.status === 401){ location.href = "/login"; throw new Error("locked"); } return r.json(); };
-let tab = "chats", lastInbox = null, conv = null;
+let tab = "chats", lastInbox = null, conv = null, convLast = 0;
 const store = { get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }, set(k,v){ try{ v==null ? localStorage.removeItem(k) : localStorage.setItem(k,v); }catch(e){} } };
 
 const EXAMPLES = [
@@ -257,7 +257,7 @@ async function send(e){
     live.remove();
     if(!got){ bub.classList.remove("thinking"); bub.textContent = "The connection dropped, but Kakarot keeps working and saves the answer. Open this chat again in a minute to see it."; wait.className = "msg err"; }
   }
-  clearInterval(ap); checkApprovals();
+  clearInterval(ap); checkApprovals(); syncChat(true);
   $("#send").disabled = false; renderSide(); if(window.innerWidth > 800) $("#t").focus();
 }
 $("#f").onsubmit = send;
@@ -269,6 +269,25 @@ function publishCard(t, reason){
   const files = t.files || [];
   return `<b>🚀 ${t.undo ? "Undo the publish of" : "Publish"} ${esc(t.title || t.name)}?</b><small>${esc(reason || "")}</small><code>To: ${esc(t.dest)}\n${t.undo ? "Puts the earlier version back" : `${t.count} changed file(s)${t.total ? " of " + t.total : ""}`}${files.length ? ":\n" + files.slice(0, 15).map(f => "• " + f).join("\n") + (files.length > 15 ? `\n…and ${files.length - 15} more` : "") : ""}</code>${(t.warnings || []).map(w => `<small>⚠️ ${esc(w)}</small><br>`).join("")}<small>Server files are backed up first; you can undo it later.</small><div class="row"><button class="yes">Approve</button><button class="no">Deny</button></div>`;
 }
+// Results of background jobs (research, missions, websites, reminders) are posted into the chat they were asked
+// from - show them here as soon as they arrive.
+let syncing = false;
+async function syncChat(markOnly){
+  if(!conv || syncing || (!markOnly && $("#send").disabled)) return;
+  syncing = true;
+  try{
+    const id = conv, msgs = await api("/api/conversations/" + id);
+    if(!Array.isArray(msgs) || id !== conv) return;
+    const fresh = msgs.filter(m => m.id > convLast);
+    if(!markOnly && convLast) for(const m of fresh){
+      if(m.role === "user") continue;
+      addMsg(m.role === "error" ? "err" : m.role, m.content); if(m.role === "assistant") addSteps(m.steps);
+      if(document.hidden){ document.title = "● Kakarot"; if(window.Notification && Notification.permission === "granted") new Notification("Kakarot", {body: String(m.content).slice(0, 200)}); }
+    }
+    if(msgs.length) convLast = Math.max(convLast, msgs[msgs.length - 1].id);
+  }catch(e){} finally{ syncing = false; }
+}
+document.addEventListener("visibilitychange", () => { if(!document.hidden && document.title.startsWith("●")) document.title = "Kakarot"; });
 async function checkScreen(){
   let s; try{ s = await api("/api/screen/status"); }catch(e){ return; }
   let bar = document.getElementById("screenbar");
@@ -295,7 +314,7 @@ async function checkApprovals(onlyPublish){
     else if(a.kind === "screen"){ const t = JSON.parse(a.detail); d.innerHTML = `<b>🖥️ Kakarot wants to use your PC screen (mouse &amp; keyboard)</b><code>${esc(t.goal)}</code><small>For up to ${t.minutes} minutes, only for this job. Take over any time: move the mouse or tap Stop. It never types passwords, and asks before Send / Delete / Pay.</small><div class="row"><button class="yes">Allow</button><button class="no">Deny</button></div>`; }
     else if(a.kind === "screen_action"){ const t = JSON.parse(a.detail); d.innerHTML = `<b>⚠️ OK to do this on your PC?</b><code>${esc(t.action)}${t.window ? "\nin: " + esc(t.window) : ""}</code><small>${esc(a.reason)}</small><div class="row"><button class="yes">Yes, do it</button><button class="no">No</button></div>`; }
     else d.innerHTML = `<b>⚠️ Kakarot wants to ${a.kind === "open" ? "open this file" : "run this command"} on your PC</b><code>${esc(a.detail)}</code><small>Why: ${esc(a.reason)}</small><div class="row"><button class="yes">Approve</button><button class="no">Deny</button></div>`;
-    const answer = async ok => { d.querySelectorAll("button").forEach(b => b.disabled = true); await api("/api/approvals/" + a.id, {method:"POST", body:JSON.stringify({approve: ok})}); d.remove(); if(a.kind === "publish" && ok) addMsg("assistant", "🚀 Publishing started - follow it in the Websites tab. The result arrives in your Inbox."); if(tab === "websites") renderSide(); };
+    const answer = async ok => { d.querySelectorAll("button").forEach(b => b.disabled = true); await api("/api/approvals/" + a.id, {method:"POST", body:JSON.stringify({approve: ok})}); d.remove(); if(a.kind === "publish" && ok) addMsg("assistant", "🚀 Publishing started - follow it in the Websites tab. The result will appear here in this chat."); if(tab === "websites") renderSide(); };
     d.querySelector(".yes").onclick = () => answer(true);
     d.querySelector(".no").onclick = () => answer(false);
     $("#chat").append(d); $("#chat").scrollTop = 1e9;
@@ -308,7 +327,7 @@ $("#shade").onclick = () => document.body.classList.remove("open");
 $("#clear").onclick = () => newChat();
 
 function newChat(){
-  conv = null; store.set("kakarot_conv", null); showEmpty(); $("#title").textContent = "New chat";
+  conv = null; convLast = 0; store.set("kakarot_conv", null); showEmpty(); $("#title").textContent = "New chat";
   document.body.classList.remove("open"); if(tab === "chats") renderSide();
 }
 async function openChat(id){
@@ -318,6 +337,7 @@ async function openChat(id){
   $("#chat").innerHTML = "";
   if(!msgs.length) showEmpty();
   msgs.forEach(m => { addMsg(m.role === "error" ? "err" : m.role, m.content); if(m.role === "assistant") addSteps(m.steps); });
+  convLast = msgs.length ? msgs[msgs.length - 1].id : 0;
   document.body.classList.remove("open"); if(tab === "chats") renderSide();
 }
 
@@ -354,13 +374,13 @@ async function renderSide(){
     const [ms, webs] = await Promise.all([api("/api/missions"), api("/api/websites")]);
     const icon = {queued:"⏳", running:"⚙️", done:"✅", failed:"❌", cancelled:"⛔"};
     const keep = s.querySelector("#goal")?.value || "";
-    s.innerHTML = `<div class="card"><b>New mission</b><small>A big job Kakarot plans and does on its own in the background. The result goes to your Inbox.</small><div class="mini"><textarea id="goal" placeholder="e.g. A modern website for my bus company with routes, fares, online booking and an admin page. Green and white, English and Bangla."></textarea></div><div class="mini"><button class="btn" id="web">🌐 Build website</button><button class="ghost" id="go">Start mission</button></div></div>` +
+    s.innerHTML = `<div class="card"><b>New mission</b><small>A big job Kakarot plans and does on its own in the background. The report is posted into this chat when it's done.</small><div class="mini"><textarea id="goal" placeholder="e.g. A modern website for my bus company with routes, fares, online booking and an admin page. Green and white, English and Bangla."></textarea></div><div class="mini"><button class="btn" id="web">🌐 Build website</button><button class="ghost" id="go">Start mission</button></div></div>` +
       (webs.length ? `<div class="sec">Your websites</div>` + webs.map(w => `<div class="card"><b>🌐 ${esc(w.title)}</b><small>${esc(w.type === "flask" ? "web app" : "website")} · ${esc(w.name)}</small><div class="mini"><a class="btn" href="${esc(w.link)}" target="_blank" style="text-decoration:none">Open</a></div></div>`).join("") + `<div class="sec">Missions</div>` : "") +
       (ms.map(m => { const n = m.plan.length, d = m.done_steps, pct = n ? Math.round(100 * d / n) : (m.status === "done" ? 100 : 3);
         return `<div class="card">${["queued","running"].includes(m.status) ? `<button class="x" data-id="${m.id}" title="Cancel">✕</button>` : ""}<b>${icon[m.status] || ""} ${esc(m.goal)}</b><small>#${m.id} · ${esc(m.status)} · ${n ? `step ${Math.min(d + (m.status === "running" ? 1 : 0), n)} of ${n}` : "planning…"} · ${esc(m.updated)}</small>${m.status !== "done" ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}${n ? `<details><summary>Plan & step results</summary><ol>${m.plan.map((p, i) => `<li class="${i < d ? "d" : ""}">${esc(p)}${m.log[i] ? `<pre>${esc(m.log[i].result.slice(0, 700))}</pre>` : ""}</li>`).join("")}</ol></details>` : ""}${m.result ? `<pre>${linkify(esc(m.result))}</pre>` : ""}</div>`; }).join("") || `<small>No missions yet.</small>`);
     $("#goal").value = keep;
     $("#web").onclick = async () => { const g = $("#goal").value.trim(); if(!g) { $("#goal").focus(); return; } $("#goal").value = ""; await api("/api/websites", {method:"POST", body:JSON.stringify({request:g})}); renderSide(); };
-    $("#go").onclick = async () => { const g = $("#goal").value.trim(); if(!g) return; $("#goal").value = ""; await api("/api/missions", {method:"POST", body:JSON.stringify({goal:g})}); renderSide(); };
+    $("#go").onclick = async () => { const g = $("#goal").value.trim(); if(!g) return; $("#goal").value = ""; const r = await api("/api/missions", {method:"POST", body:JSON.stringify({goal:g, chat_id:conv})}); if(r && r.chat_id) openChat(r.chat_id); renderSide(); };
     s.querySelectorAll(".x").forEach(b => b.onclick = async () => { if(!confirm("Cancel this mission?")) return; await api(`/api/missions/${b.dataset.id}/cancel`, {method:"POST"}); renderSide(); });
   } else if(tab === "websites"){
     await renderWebsites(s);
@@ -539,7 +559,7 @@ window.addEventListener("focus", () => document.title = "Kakarot");
   }
   const last = store.get("kakarot_conv");
   if(last) await openChat(+last); else showEmpty();
-  renderSide(); poll(); setInterval(poll, 15000); setInterval(checkScreen, 3000); setInterval(() => checkApprovals(), 2500); checkApprovals();
+  renderSide(); poll(); setInterval(poll, 15000); setInterval(checkScreen, 3000); setInterval(() => syncChat(), 4000); setInterval(() => checkApprovals(), 2500); checkApprovals();
   setInterval(() => { if((tab === "missions" || tab === "websites") && !document.activeElement?.closest?.("#side")) renderSide(); }, 6000);
   if(window.Notification && Notification.permission === "default") Notification.requestPermission();
 })();
