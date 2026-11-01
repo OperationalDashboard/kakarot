@@ -63,7 +63,14 @@
   .approve{max-width:780px;margin:0 auto 14px;border:2px solid #d9a21b;background:var(--panel);border-radius:14px;padding:12px 14px}
   .approve b{display:block;margin-bottom:4px}
   .approve code{display:block;background:var(--code);padding:8px 10px;border-radius:8px;white-space:pre-wrap;word-break:break-all;margin:6px 0;font-size:13px}
-  .approve small{color:var(--muted)}
+  .approve small{color:var(--muted);display:block;margin-top:4px}
+  .approve.del{border-color:#e5484d} .approve.del .yes{background:#e5484d;color:#fff}
+  .approve code.diff span.add{color:#1f8a4c} .approve code.diff span.rem{color:#d33a3f} .approve details summary{cursor:pointer;font-size:13px}
+  #screenbar{position:sticky;top:0;z-index:5;max-width:780px;margin:0 auto 10px;background:#1d2320;color:#fff;border-radius:12px;padding:8px 12px;display:none;gap:10px;align-items:center;flex-wrap:wrap}
+  #screenbar.on{display:flex} #screenbar span{flex:1;min-width:160px;font-size:14px}
+  #screenbar button{border:0;border-radius:9px;padding:6px 12px;font:inherit;font-weight:600;cursor:pointer}
+  #screenbar .stop{background:#e5484d;color:#fff} #screenbar .view{background:#3a423e;color:#fff}
+  #screenbar img{width:100%;border-radius:8px;display:none} #screenbar.show img{display:block}
   .approve .row{display:flex;gap:8px;margin-top:8px}
   .approve button{border:0;border-radius:10px;padding:8px 16px;font:inherit;font-weight:600;cursor:pointer}
   .approve .yes{background:var(--accent);color:var(--accent-ink)} .approve .no{background:var(--bg);color:var(--ink);border:1px solid var(--line)}
@@ -250,7 +257,7 @@ async function send(e){
     live.remove();
     if(!got){ bub.classList.remove("thinking"); bub.textContent = "The connection dropped, but Kakarot keeps working and saves the answer. Open this chat again in a minute to see it."; wait.className = "msg err"; }
   }
-  clearInterval(ap); document.querySelectorAll(".approve").forEach(e => { if(!e.querySelector("b")?.textContent.startsWith("🚀")) e.remove(); });
+  clearInterval(ap); checkApprovals();
   $("#send").disabled = false; renderSide(); if(window.innerWidth > 800) $("#t").focus();
 }
 $("#f").onsubmit = send;
@@ -262,6 +269,18 @@ function publishCard(t, reason){
   const files = t.files || [];
   return `<b>🚀 ${t.undo ? "Undo the publish of" : "Publish"} ${esc(t.title || t.name)}?</b><small>${esc(reason || "")}</small><code>To: ${esc(t.dest)}\n${t.undo ? "Puts the earlier version back" : `${t.count} changed file(s)${t.total ? " of " + t.total : ""}`}${files.length ? ":\n" + files.slice(0, 15).map(f => "• " + f).join("\n") + (files.length > 15 ? `\n…and ${files.length - 15} more` : "") : ""}</code>${(t.warnings || []).map(w => `<small>⚠️ ${esc(w)}</small><br>`).join("")}<small>Server files are backed up first; you can undo it later.</small><div class="row"><button class="yes">Approve</button><button class="no">Deny</button></div>`;
 }
+async function checkScreen(){
+  let s; try{ s = await api("/api/screen/status"); }catch(e){ return; }
+  let bar = document.getElementById("screenbar");
+  if(!bar){ bar = document.createElement("div"); bar.id = "screenbar";
+    bar.innerHTML = `<span></span><button class="view">👁 View</button><button class="stop">■ Stop</button><img alt="Live view of your PC screen">`;
+    bar.querySelector(".stop").onclick = async () => { await api("/api/screen/stop", {method:"POST"}); bar.classList.remove("on"); };
+    bar.querySelector(".view").onclick = () => bar.classList.toggle("show");
+    $("#chat").before(bar); }
+  bar.classList.toggle("on", !!s.active);
+  if(s.active){ bar.querySelector("span").textContent = "🖥️ Kakarot is using your PC: " + (s.goal || "a task") + ` (${s.actions} actions)`;
+    if(bar.classList.contains("show")) bar.querySelector("img").src = "/api/screen/latest.jpg?t=" + Date.now(); }
+}
 async function checkApprovals(onlyPublish){
   let list; try{ list = await api("/api/approvals"); }catch(e){ return; }
   if(onlyPublish) list = list.filter(a => a.kind === "publish");
@@ -270,6 +289,11 @@ async function checkApprovals(onlyPublish){
     const d = document.createElement("div"); d.className = "approve"; d.id = "ap" + a.id;
     if(a.kind === "publish"){ const t = JSON.parse(a.detail); d.innerHTML = publishCard(t, a.reason); }
     else if(a.kind === "tool"){ const t = JSON.parse(a.detail); d.innerHTML = `<b>🧩 Kakarot built a new ability: ${esc(t.name)}</b><small>${esc(a.reason)}</small><details><summary>Show the code</summary><code>${esc(t.code)}</code></details><div class="row"><button class="yes">Approve</button><button class="no">Deny</button></div>`; }
+    else if(a.kind === "delete" || a.kind === "edit"){ const t = JSON.parse(a.detail); const del = a.kind === "delete";
+      d.classList.add(del ? "del" : "edit");
+      d.innerHTML = `<b>${del ? "🗑️" : "✏️"} ${esc(t.title)}?</b>${(t.items || []).length ? `<code>${t.items.map(esc).join("\n")}</code>` : ""}${t.preview ? `<details${del ? "" : " open"}><summary>Show the change</summary><code class="diff">${t.preview.split("\n").map(l => `<span class="${l.startsWith("+") && !l.startsWith("+++") ? "add" : l.startsWith("-") && !l.startsWith("---") ? "rem" : ""}">${esc(l)}</span>`).join("\n")}</code></details>` : ""}${a.reason ? `<small>${esc(a.reason)}</small>` : ""}<small>Kakarot is waiting for your answer and won't continue without it.</small><div class="row"><button class="yes">${del ? "Approve delete" : "Approve edit"}</button><button class="no">Deny</button></div>`; }
+    else if(a.kind === "screen"){ const t = JSON.parse(a.detail); d.innerHTML = `<b>🖥️ Kakarot wants to use your PC screen (mouse &amp; keyboard)</b><code>${esc(t.goal)}</code><small>For up to ${t.minutes} minutes, only for this job. Take over any time: move the mouse or tap Stop. It never types passwords, and asks before Send / Delete / Pay.</small><div class="row"><button class="yes">Allow</button><button class="no">Deny</button></div>`; }
+    else if(a.kind === "screen_action"){ const t = JSON.parse(a.detail); d.innerHTML = `<b>⚠️ OK to do this on your PC?</b><code>${esc(t.action)}${t.window ? "\nin: " + esc(t.window) : ""}</code><small>${esc(a.reason)}</small><div class="row"><button class="yes">Yes, do it</button><button class="no">No</button></div>`; }
     else d.innerHTML = `<b>⚠️ Kakarot wants to ${a.kind === "open" ? "open this file" : "run this command"} on your PC</b><code>${esc(a.detail)}</code><small>Why: ${esc(a.reason)}</small><div class="row"><button class="yes">Approve</button><button class="no">Deny</button></div>`;
     const answer = async ok => { d.querySelectorAll("button").forEach(b => b.disabled = true); await api("/api/approvals/" + a.id, {method:"POST", body:JSON.stringify({approve: ok})}); d.remove(); if(a.kind === "publish" && ok) addMsg("assistant", "🚀 Publishing started - follow it in the Websites tab. The result arrives in your Inbox."); if(tab === "websites") renderSide(); };
     d.querySelector(".yes").onclick = () => answer(true);
@@ -515,7 +539,7 @@ window.addEventListener("focus", () => document.title = "Kakarot");
   }
   const last = store.get("kakarot_conv");
   if(last) await openChat(+last); else showEmpty();
-  renderSide(); poll(); setInterval(poll, 15000);
+  renderSide(); poll(); setInterval(poll, 15000); setInterval(checkScreen, 3000); setInterval(() => checkApprovals(), 2500); checkApprovals();
   setInterval(() => { if((tab === "missions" || tab === "websites") && !document.activeElement?.closest?.("#side")) renderSide(); }, 6000);
   if(window.Notification && Notification.permission === "default") Notification.requestPermission();
 })();
