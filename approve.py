@@ -3,7 +3,7 @@
 Every delete (trash a file, forget a memory, cancel a schedule...) and every edit (overwrite or change a file, move or
 rename it, change a website, undo a change, risky clicks on the screen) shows an Approve / Deny card in the chat page.
 Kakarot then WAITS - it doesn't give up or skip ahead - until you answer, however long that takes
-(`approval_timeout_minutes: 0` = wait forever). While it waits you get a Windows pop-up and an Inbox message, and a
+(`approval_timeout_minutes: 0` = wait forever). While it waits you get a Windows pop-up, and a
 reminder every `approval_remind_minutes`.
 
 Settings in config.json: ask_before_delete (true), ask_before_edit (true).
@@ -50,11 +50,6 @@ def wait(aid, title):
     remind = max(1, int(CFG.get("approval_remind_minutes", 10))) * 60
     t0 = last = time.time()
     _remind(title, True)
-    try:
-        db.add_inbox("⏳ Waiting for your OK", f"{title}\n\nOpen the chat page and tap Approve or Deny. "
-                                              f"Kakarot waits until you answer.")
-    except Exception:
-        pass
     while True:
         row = db.q("SELECT status FROM approvals WHERE id=?", (aid,))
         status = row[0]["status"] if row else "denied"

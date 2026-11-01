@@ -49,7 +49,7 @@ How to work:
   everything about...", "compare..."): deep_research (depth 'deep' when the user wants it thorough). It searches
   many sites, cross-checks them and writes a report with sources. Quick facts: just web_search / fetch_page.
 - Big jobs that need many steps (research + compare + make a report, check many things): offer or use start_mission,
-  which works on it in the background and puts the result in the Inbox.
+  which works on it in the background and posts the result back into this chat.
 - Website health: website_status shows whether watched sites are up; watch_website adds one.
 - CODING (programs, scripts, websites, bots, data processing): code_new_project, then write_code for each file with
   DETAILED instructions (your coding brain writes the code), run_code to run it / its tests, read the errors, fix with
@@ -167,6 +167,14 @@ def call_model(messages, smart=False, on_event=None, use_tools=True, fmt=None):
     return {"role": "assistant", "content": "".join(content), "tool_calls": calls}
 
 
+_ctx = threading.local()
+
+
+def current_chat():
+    """The chat the user is talking in right now (so background jobs can answer there), or None."""
+    return getattr(_ctx, "cid", None)
+
+
 def run_agent(user_text, conversation_id=None, background=False, save_history=None, smart=False, on_event=None,
               extra_system="", max_steps=None):
     """Returns (final_reply, steps). steps = list of tool calls made, for showing in the UI.
@@ -188,6 +196,9 @@ def run_agent(user_text, conversation_id=None, background=False, save_history=No
                 extra_system = (extra_system + "\n" + lang_extra).strip()
     except Exception as e:
         log.warning("bangla helper failed: %s", e)
+    prev = current_chat()
+    if cid and not background:
+        _ctx.cid = cid
     try:
         final, steps = _run(model_text, history, background, smart, on_event, extra_system, max_steps)
     except Exception as e:
@@ -195,6 +206,8 @@ def run_agent(user_text, conversation_id=None, background=False, save_history=No
         if cid:
             db.add_message(cid, "error", f"{e}")
         raise
+    finally:
+        _ctx.cid = prev
     if cid:
         db.add_message(cid, "assistant", final, steps)
     return final, steps

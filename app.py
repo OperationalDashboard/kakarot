@@ -142,7 +142,14 @@ def api_mission_new():
     goal = (request.json or {}).get("goal", "").strip()
     if not goal:
         return jsonify({"error": "empty goal"}), 400
-    return jsonify({"id": missions.start(goal)})
+    cid = (request.json or {}).get("chat_id")
+    if not cid or not db.conversation_exists(cid):  # its own chat, so the report has a place to land
+        cid = db.new_conversation()
+    db.add_message(cid, "user", f"Mission: {goal}")
+    mid = missions.start(goal, data={"chat_id": cid})
+    db.add_message(cid, "assistant", f"Mission #{mid} started in the background. The report will appear here in "
+                                     f"this chat when it's done (progress is in the Missions tab).")
+    return jsonify({"id": mid, "chat_id": cid})
 
 
 @app.post("/api/missions/<int:mid>/cancel")

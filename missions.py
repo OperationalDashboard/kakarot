@@ -1,5 +1,5 @@
 """Missions: big jobs Kakarot works on in the background.
-It plans the steps, does them one by one (each step can use all tools), then writes a final report to the Inbox.
+It plans the steps, does them one by one (each step can use all tools), then posts the final report into the chat it was asked from.
 Missions survive a restart: they continue from the last finished step."""
 import json
 import logging
@@ -51,7 +51,31 @@ def _save(mid, **kw):
     db.x(f"UPDATE missions SET {', '.join(f'{k}=?' for k in kw)} WHERE id=?", (*kw.values(), mid))
 
 
+def _chat_now():
+    try:
+        import agent
+        return agent.current_chat()
+    except Exception:
+        return None
+
+
+def chat_of(mid):
+    try:
+        row = db.q("SELECT data FROM missions WHERE id=?", (mid,))
+        return (json.loads(row[0]["data"] or "{}") if row else {}).get("chat_id")
+    except Exception:
+        return None
+
+
+def deliver(mid, title, body):
+    """The result goes back into the chat the job was started from (Inbox only if it wasn't started from a chat)."""
+    db.reply_to(chat_of(mid), title, body)
+
+
 def start(goal, kind="agent", data=None):
+    data = dict(data or {})
+    if not data.get("chat_id"):
+        data["chat_id"] = _chat_now()
     mid = db.x("INSERT INTO missions(goal, status, plan, log, result, created, updated, kind, data) "
                "VALUES(?,?,?,?,?,?,?,?,?)",
                (goal.strip(), "queued", "[]", "[]", "", db.now(), db.now(), kind,
@@ -119,7 +143,7 @@ def _run_mission(mid):
     except Exception as e:
         final = f"(Could not write the summary: {e})\n\n{results}"
     _save(mid, status="done", result=final)
-    db.add_inbox(f"🎯 Mission done: {m['goal'][:60]}", final)
+    deliver(mid, f"🎯 Mission done: {m['goal'][:60]}", f"🎯 Mission #{mid} done\n\n{final}")
     scheduler.notify("Mission done", m["goal"][:120])
 
 
@@ -145,7 +169,7 @@ def _loop():
         except Exception as e:
             log.exception("mission %s failed", mid)
             _save(mid, status="failed", result=f"Mission failed: {e}")
-            db.add_inbox("⚠️ Mission failed", f"{e}")
+            deliver(mid, "⚠️ Mission failed", f"⚠️ Mission #{mid} failed: {e}")
 
 
 def _ensure_worker():
@@ -162,13 +186,13 @@ def resume():
 
 @tool("start_mission",
       "Start a BIG multi-step job in the background (a 'mission'). Kakarot plans it, works through every step on its "
-      "own and puts the final report in the Inbox. Use for long research, comparing many things, building reports "
+      "own and posts the final report back into this chat. Use for long research, comparing many things, building reports "
       "from several sources. The user can keep chatting meanwhile.",
       {"goal": S("The full goal, with all details the user gave (dates, places, what file to make).")})
 def start_mission(goal):
     mid = start(goal)
     return (f"Mission #{mid} started in the background. I'll plan it and work through it; the result will appear "
-            f"in the Inbox (progress is in the Missions tab).")
+            f"right here in this chat when it's done (progress is in the Missions tab).")
 
 
 @tool("list_missions", "Show background missions and their progress.")

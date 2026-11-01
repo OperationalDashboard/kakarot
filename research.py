@@ -484,7 +484,7 @@ def _report(job, smart):
 def _finish(job, text):
     import missions
     missions._save(job.mid, status="done", result=text)
-    db.add_inbox(f"🔎 Research done: {job.data.get('title') or job.goal[:60]}", text)
+    missions.deliver(job.mid, f"🔎 Research done: {job.data.get('title') or job.goal[:60]}", text)
     try:
         import scheduler
         scheduler.notify("Research done", (job.data.get("title") or job.goal)[:120])
@@ -497,7 +497,7 @@ def _finish(job, text):
       "DEEP RESEARCH on any question (markets, prices, laws, products, competitors, news, history, how-to): plans "
       "sub-questions, searches many websites (English and Bangla), reads them, cross-checks what they say and writes a "
       "report with numbered sources (Word + Markdown) in the background. Use for questions that need more than one "
-      "quick search. Result arrives in the Inbox.",
+      "quick search. The report is posted back into this chat when it's done.",
       {"question": S("The full research question, in the user's words plus any details from the chat."),
        "depth": S("'normal' (about 9 sources, ~10-20 min) or 'deep' (about 16 sources + a second search round).")},
       ["question"])
@@ -508,4 +508,4 @@ def deep_research(question, depth="normal"):
                          data={"question": question.strip(), "depth": depth})
     n = 16 if depth == "deep" else 9
     return (f"Started researching it (Mission #{mid}, {depth}): I'll search the web, read about {n} sources, cross-check "
-            f"them and write a report with sources. Watch it in the Missions tab; the report arrives in your Inbox.")
+            f"them and write a report with sources. The report will appear right here in this chat when it's done (progress is in the Missions tab).")

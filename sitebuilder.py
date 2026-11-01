@@ -734,7 +734,7 @@ def _finish(job, pdir, spec, remaining, probs, look_note, headline=None):
                  else "") + f"\nPages: {', '.join(p.get('title', '') for p in spec.get('pages', []))}{left}")
     job.done("Package and publish preview", f"Preview: {link}\nZip: {zpath}")
     missions._save(job.mid, status="done", result=result)
-    db.add_inbox(f"🌐 Website ready: {spec.get('title', name)}", result)
+    missions.deliver(job.mid, f"🌐 Website ready: {spec.get('title', name)}", result)
     scheduler.notify("Website ready", spec.get("title", name))
 
 
@@ -772,7 +772,7 @@ def build_website(request, name="", assets=""):
     n = 10
     return (f"Started building the website (Mission #{mid}). I'm planning it now, then I write about {n} files, test "
             f"everything in a real browser and fix problems. With the coding brain on this PC that takes roughly "
-            f"30-90 minutes. Progress is in the Missions tab, and the live link will arrive in your Inbox.")
+            f"30-90 minutes. Progress is in the Missions tab, and the live link will appear here in this chat.")
 
 
 FIGMA_LOOK = """This is a website design from Figma. Describe it from top to bottom so a developer can rebuild it exactly:
@@ -814,4 +814,4 @@ def build_website_from_figma(figma_link, request="", name=""):
                          data={"request": full, "name": _slug(name) if name else "", "assets": [],
                                "figma": figma_link, "design_ref": pngs[:1]})
     return (f"Read your Figma design and started building it (Mission #{mid}). I'll write the files, test them in a "
-            f"real browser, compare against the design rules and polish. The live link arrives in your Inbox.")
+            f"real browser, compare against the design rules and polish. The live link will appear here in this chat.")

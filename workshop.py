@@ -1,6 +1,6 @@
 """Website workshop: open any site -> check it -> fix/change it -> publish it, as background Missions.
 
-Every job shows its progress in the Missions/Websites tabs and ends with a report in the Inbox.
+Every job shows its progress in the Missions/Websites tabs and ends with a report in the chat it was asked from.
   open     : copy a site into Kakarot (folder, GitHub, FTP hosting, live link), then check it
   check    : deep check (errors, links, phone, SEO, accessibility, speed, security, code, design)
   fix      : check -> fix -> check again (up to N rounds); changes that make things worse are undone automatically
@@ -145,7 +145,7 @@ def _finish(job, title, body, ok=True):
     import missions
     import scheduler
     missions._save(job.mid, status="done" if ok else "failed", result=body)
-    db.add_inbox(title, body)
+    missions.deliver(job.mid, title, body)
     try:
         scheduler.notify(title[:60], body[:200])
     except Exception:
@@ -609,13 +609,13 @@ def open_website(source, name="", account=""):
     extra = {"url": " (no hosting account saved for it, so I save a copy of the public pages - add the FTP account "
                     "in Websites → Accounts to work on the real files)",
              "ftp": " from your hosting"}.get(kind, "")
-    return (f"Opening it{extra} and checking it (Mission #{mid}). The report arrives in your Inbox; you can follow "
+    return (f"Opening it{extra} and checking it (Mission #{mid}). The report will appear here in this chat; you can follow "
             f"progress in the Websites tab.")
 
 
 @tool("check_website",
       "DEEP CHECK of a website: errors, broken links, phone layout, SEO, accessibility, speed, security, code, "
-      "design. Works for a site in Kakarot (by name) or ANY live address. Runs in the background; report in Inbox.",
+      "design. Works for a site in Kakarot (by name) or ANY live address. Runs in the background; report in this chat.",
       {"target": S("Website name in Kakarot, or a live address like https://example.com"),
        "live": B("For a site in Kakarot: check the live published site instead of the copy on this PC.")}, ["target"])
 def check_website(target, live=False):
@@ -626,10 +626,10 @@ def check_website(target, live=False):
             url = target.strip() if target.startswith("http") else "https://" + target.strip()
             mid = _start(f"Check website {url}", {"mode": "check", "url": url})
             return f"Checking {url} in the background (Mission #{mid}) - every page, links, phone view, speed, " \
-                   f"security. The report arrives in your Inbox in a few minutes."
+                   f"security. The report will appear here in this chat in a few minutes."
         raise
     mid = start_job("check", name, where="live" if live else "local")
-    return f"Checking {name} in the background (Mission #{mid}). The report arrives in your Inbox."
+    return f"Checking {name} in the background (Mission #{mid}). The report will appear here in this chat."
 
 
 @tool("fix_website",
@@ -642,7 +642,7 @@ def check_website(target, live=False):
                        "account, or 'online' for where it came from). The user still approves.")}, ["name"])
 def fix_website(name, focus="", publish_to=""):
     mid = start_job("fix", name, focus=focus, publish_to=publish_to)
-    return f"Fixing it in the background (Mission #{mid}): check → fix → re-check. Report in your Inbox; every change can be undone."
+    return f"Fixing it in the background (Mission #{mid}): check → fix → re-check. Report here in this chat; every change can be undone."
 
 
 @tool("update_website",
@@ -652,7 +652,7 @@ def fix_website(name, focus="", publish_to=""):
        "publish_to": S("Optional: publish after the change (the user approves).")}, ["name", "change"])
 def update_website(name, change, publish_to=""):
     mid = start_job("change", name, change=change, publish_to=publish_to)
-    return f"Working on it in the background (Mission #{mid}): change → test → report in your Inbox."
+    return f"Working on it in the background (Mission #{mid}): change → test → report here in this chat."
 
 
 @tool("publish_website",

@@ -86,6 +86,8 @@ def init():
                 c.execute("ALTER TABLE missions ADD COLUMN kind TEXT DEFAULT 'agent'")
             if "data" not in mcols:
                 c.execute("ALTER TABLE missions ADD COLUMN data TEXT")
+            if "chat_id" not in _columns(c, "jobs"):
+                c.execute("ALTER TABLE jobs ADD COLUMN chat_id INTEGER")
             c.commit()
         finally:
             c.close()
@@ -136,6 +138,17 @@ def set_kv(key, value):
 
 def add_inbox(title, body):
     return x("INSERT INTO inbox(title, body, created) VALUES(?,?,?)", (title, body, now()))
+
+
+def reply_to(chat_id, title, body):
+    """Put a result in the chat it was asked from. Only when there is no such chat does it go to the Inbox."""
+    try:
+        cid = int(chat_id) if chat_id else None
+    except (TypeError, ValueError):
+        cid = None
+    if cid and conversation_exists(cid):
+        return add_message(cid, "assistant", body)
+    return add_inbox(title, body)
 
 
 # ---------------------------------------------------------------- conversations

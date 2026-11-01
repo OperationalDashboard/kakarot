@@ -477,7 +477,7 @@ def _parse_when(when):
     return datetime.datetime.fromisoformat(when.strip().replace("T", " "))
 
 
-@tool("set_reminder", "Set a one-time reminder. It pops up on the PC and in the Inbox at that time.",
+@tool("set_reminder", "Set a one-time reminder. It pops up on the PC and in this chat at that time.",
       {"message": S("What to remind about."),
        "when": S("Local date-time 'YYYY-MM-DD HH:MM', or relative like '30m', '2h', '1d'.")})
 def set_reminder(message, when):
@@ -492,7 +492,7 @@ def set_reminder(message, when):
 
 
 @tool("schedule_task", "Make Kakarot do a task automatically on a repeating schedule (e.g. check a website every "
-                       "morning). Results go to the Inbox.",
+                       "morning). Each result is posted into this chat.",
       {"name": S("Short name."),
        "task": S("Full instruction Kakarot should carry out each time, written as if the user typed it."),
        "cron": S("5-field cron in local time: 'minute hour day month weekday'. "

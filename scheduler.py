@@ -26,7 +26,7 @@ def _fire_reminder(job_id):
     if not rows:
         return
     msg = rows[0]["prompt"]
-    db.add_inbox("⏰ Reminder", msg)
+    db.reply_to(rows[0].get("chat_id"), "⏰ Reminder", f"⏰ Reminder: {msg}")
     notify("Reminder", msg)
     db.x("DELETE FROM jobs WHERE id=?", (job_id,))
 
@@ -41,7 +41,7 @@ def _run_task(job_id):
         reply, _ = run_agent(j["prompt"], background=True)
     except Exception as e:
         reply = f"Task failed: {e}"
-    db.add_inbox(f"🔁 {j['name']}", reply)
+    db.reply_to(j.get("chat_id"), f"🔁 {j['name']}", f"🔁 {j['name']}\n\n{reply}")
     notify(j["name"], reply)
 
 
@@ -61,8 +61,14 @@ def _register(j):
 def add_job(j):
     if j["kind"] == "task":
         CronTrigger.from_crontab(j["cron"])  # validate before saving
-    db.x("INSERT INTO jobs(id, name, prompt, cron, run_at, kind, created) VALUES(?,?,?,?,?,?,?)",
-         (j["id"], j["name"], j["prompt"], j["cron"], j["run_at"], j["kind"], db.now()))
+    if "chat_id" not in j:
+        try:
+            import agent
+            j["chat_id"] = agent.current_chat()
+        except Exception:
+            j["chat_id"] = None
+    db.x("INSERT INTO jobs(id, name, prompt, cron, run_at, kind, created, chat_id) VALUES(?,?,?,?,?,?,?,?)",
+         (j["id"], j["name"], j["prompt"], j["cron"], j["run_at"], j["kind"], db.now(), j["chat_id"]))
     return _register(j)
 
 
