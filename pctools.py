@@ -12,17 +12,12 @@ def _ask(kind, detail, reason):
     """Create an approval request and wait for the user's answer. Returns True/False."""
     if CTX.get("background"):
         raise PermissionError("Scheduled background runs can't run commands (nobody is there to approve).")
+    import approve
     aid = db.x("INSERT INTO approvals(kind, detail, reason, status, created) VALUES(?,?,?,?,?)",
                (kind, detail, reason, "pending", db.now()))
-    deadline = time.time() + int(CFG.get("approval_wait_seconds", 180))
-    while time.time() < deadline:
-        row = db.q("SELECT status FROM approvals WHERE id=?", (aid,))
-        status = row[0]["status"] if row else "denied"
-        if status != "pending":
-            return status == "approved"
-        time.sleep(1)
-    db.x("UPDATE approvals SET status='expired' WHERE id=?", (aid,))
-    return None
+    title = {"command": "Run a command", "open": "Open a file", "screen": "Use your PC screen",
+             "screen_action": "A click on your PC"}.get(kind, kind) + ": " + str(detail)[:100]
+    return approve.wait(aid, title)  # waits until you answer (approval_timeout_minutes: 0 = forever)
 
 
 @tool("run_command", "Run a Windows command or script on the user's PC (cmd.exe), e.g. 'ipconfig', 'python script.py', "

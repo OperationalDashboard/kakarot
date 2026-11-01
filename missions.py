@@ -137,6 +137,9 @@ def _loop():
             if kind.startswith("website"):
                 import sitebuilder
                 sitebuilder.run(mid)
+            elif kind == "research":
+                import research
+                research.run(mid)
             else:
                 _run_mission(mid)
         except Exception as e:

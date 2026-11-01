@@ -45,6 +45,9 @@ How to work:
 - You can SEE: for an attached picture, photo, screenshot or scanned PDF, call look_at_image with a clear question.
 - You KNOW the user's files: when they ask about something that might be in their documents, call search_my_files
   first and answer from the passages, naming the files. Attached documents: read_file (or look_at_image if scanned).
+- RESEARCH questions that need several sources (markets, prices, laws, competitors, products, news, "find out
+  everything about...", "compare..."): deep_research (depth 'deep' when the user wants it thorough). It searches
+  many sites, cross-checks them and writes a report with sources. Quick facts: just web_search / fetch_page.
 - Big jobs that need many steps (research + compare + make a report, check many things): offer or use start_mission,
   which works on it in the background and puts the result in the Inbox.
 - Website health: website_status shows whether watched sites are up; watch_website adds one.
@@ -66,9 +69,19 @@ How to work:
 - DESIGN: new sites follow Kakarot's design rules (no AI look, real photos, smooth fast motion). A Figma link =
   build_website_from_figma. "Make my site look better / less AI / more professional" = fix_website with
   focus "design" (existing sites keep their look unless the user asks for that).
+- PC SCREEN (anything in a desktop app: Excel/Word windows, File Explorer, Settings, installers, WhatsApp/Telegram
+  desktop, any program): screen_look first (pass the user's task as 'goal'; it shows the screen and numbered
+  buttons/fields), then screen_click / screen_type / screen_key / screen_scroll / open_app / switch_window, and
+  screen_look again after each change to check it worked. Finish with screen_done. Prefer direct tools (files,
+  create_excel, web_*) when they can do the job faster. Never type passwords or payment details; before sending,
+  deleting, buying or submitting anything, tell the user what you are about to do (risky clicks also ask them).
+  If screen control stops because the user moved the mouse, stop and report - don't fight them.
 - If you need an ability you don't have and it would be useful again, use build_new_tool (the user approves it).
 - For "remind me..." use set_reminder. If the user tells you a lasting fact or preference, use remember.
 - Files are never deleted, only moved to _trash with trash_file.
+- Every DELETE or EDIT (overwriting/changing/moving a file, trash_file, forget, cancel_scheduled, website edits,
+  undo, Save/Delete/Send clicks) shows the user an Approve/Deny card and waits for their answer - just call the
+  tool and wait. If the user DENIES, nothing changed: stop that action, say so, and don't try it another way.
 - When finished, reply briefly and clearly with what you did and the result. Reply in the user's language.
 {extra}"""
 
@@ -165,8 +178,18 @@ def run_agent(user_text, conversation_id=None, background=False, save_history=No
         rows = db.get_messages(cid, limit=int(CFG.get("history_messages", 16)))
         history = [{"role": r["role"], "content": r["content"]} for r in rows if r["role"] in ("user", "assistant")]
         db.add_message(cid, "user", user_text)
+    model_text = user_text
+    try:  # Bangla / Banglish / dialects: work out the meaning first, reply in the user's own style
+        import bangla
+        if bangla.needs_help(user_text):
+            _emit(on_event, type="status", text="Understanding your Bangla…")
+            model_text, lang_extra = bangla.prepare(user_text)
+            if lang_extra:
+                extra_system = (extra_system + "\n" + lang_extra).strip()
+    except Exception as e:
+        log.warning("bangla helper failed: %s", e)
     try:
-        final, steps = _run(user_text, history, background, smart, on_event, extra_system, max_steps)
+        final, steps = _run(model_text, history, background, smart, on_event, extra_system, max_steps)
     except Exception as e:
         log.exception("agent failed")
         if cid:
@@ -201,7 +224,9 @@ def _run(user_text, history, background, smart=False, on_event=None, extra_syste
         msgs = [{"role": "system", "content": system}] + history + [{"role": "user", "content": user_text}]
 
         steps, final = [], None
-        for _ in range(int(max_steps or CFG.get("max_steps", 12))):
+        limit, n = int(max_steps or CFG.get("max_steps", 12)), 0
+        while n < limit:
+            n += 1
             _emit(on_event, type="thinking_start")
             m = call_model(msgs, smart, on_event)
             calls = m.get("tool_calls") or []
@@ -220,6 +245,8 @@ def _run(user_text, history, background, smart=False, on_event=None, extra_syste
                         args = json.loads(args)
                     except json.JSONDecodeError:
                         args = {}
+                if name.startswith("screen_") or name in ("open_app", "switch_window"):
+                    limit = max(limit, int(CFG.get("screen_max_steps", 40)))  # screen work needs many small steps
                 _emit(on_event, type="step_start", tool=name, args=args)
                 if background and name in ("schedule_task", "start_mission"):
                     result = f"Error: background runs can't use {name}."
@@ -233,6 +260,10 @@ def _run(user_text, history, background, smart=False, on_event=None, extra_syste
                     steps.append({"tool": name, "args": args, "result": "(report shown above)"})
                     break
                 steps.append({"tool": name, "args": args, "result": result[:600]})
+                if name == "screen_look":  # only the newest screen view matters; keep the brain's memory small
+                    for old in msgs:
+                        if old.get("role") == "tool" and old.get("tool_name") == "screen_look":
+                            old["content"] = "(older screen view - see the newest one)"
                 msgs.append({"role": "tool", "content": result, "tool_name": name})
             if final is not None:
                 break

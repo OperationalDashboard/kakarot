@@ -274,6 +274,8 @@ def watch_website(url, must_contain=""):
 
 @tool("unwatch_website", "Stop watching a website.", {"url": S("The URL being watched.")})
 def unwatch_website(url):
+    import approve
+    approve.require("delete", f"Stop watching {url}", [url])
     db.x("DELETE FROM watch_sites WHERE url=?", (url,))
     db.x("DELETE FROM site_state WHERE url=?", (url,))
     return f"Stopped watching {url}."

@@ -28,6 +28,8 @@ import sites
 import vault
 import vision
 import workshop
+import research  # noqa: F401  (registers deep_research)
+import desktop
 from config import BASE, CFG
 
 os.makedirs(os.path.join(BASE, "data"), exist_ok=True)
@@ -436,6 +438,28 @@ def api_conversation_rename(cid):
 def api_conversation_delete(cid):
     db.delete_conversation(cid)
     return jsonify({"ok": True})
+
+
+@app.get("/api/screen/status")
+def api_screen_status():
+    return jsonify(desktop.status())
+
+
+@app.post("/api/screen/stop")
+def api_screen_stop():
+    desktop.stop("You tapped Stop.")
+    return jsonify({"ok": True})
+
+
+@app.get("/api/screen/latest.jpg")
+def api_screen_latest():
+    from flask import send_file
+    p = desktop.latest_jpeg()
+    if not p:
+        return jsonify({"error": "no screenshot yet"}), 404
+    r = send_file(p, mimetype="image/jpeg", max_age=0)
+    r.headers["Cache-Control"] = "no-store"
+    return r
 
 
 @app.get("/api/approvals")

@@ -224,6 +224,23 @@ def _m_check(job, p):
     _finish(job, f"🔍 {spec['title'][:40]}: {rep['score']}/100", body)
 
 
+def _keep_edits(ch, spec, label, note=""):
+    """Kakarot finished editing (and tested) the site's files: the user approves keeping them, or they are undone."""
+    import approve
+    st = ch.stats()
+    if not st:
+        return True
+    items = [f"{s['path']} ({'new' if s['state'] == 'created' else s['state']}"
+             + ("" if s.get("binary") else f", +{s['added']} -{s['removed']}") + ")" for s in st]
+    ok = approve.ask("delete" if any(s["state"] == "deleted" for s in st) else "edit",
+                     f"Keep the edits to {spec.get('title') or spec.get('name')}: {label}", items,
+                     ch.diff(20000), reason=f"Tested in Kakarot's copy ({note}). Deny = everything is put back "
+                                            f"exactly as before. Nothing goes online without another OK.")
+    if not ok:
+        ch.rollback()
+    return ok
+
+
 def _m_fix(job, p):
     d = job.data
     name = d["name"]
@@ -257,6 +274,10 @@ def _m_fix(job, p):
             ch.rollback()
             undone.append(f"Round {r}: undone because it caused: " + "; ".join(k[2] for k in list(broke)[:3]))
             job.done(f"Fix round {r}", "Undone (made things worse): " + "; ".join(k[2] for k in list(broke)[:4]), ok=False)
+            break
+        if not _keep_edits(ch, spec, f"Fix round {r}", f"score {rep['score']} → {rep_new['score']}"):
+            undone.append(f"Round {r}: you denied the edits, so they were put back.")
+            job.done(f"Fix round {r}", "You denied these edits - put back as before.", ok=False)
             break
         meta = ch.commit({"score_before": rep["score"], "score_after": rep_new["score"]})
         changes.append(meta)
@@ -331,6 +352,10 @@ def _m_change(job, p):
                        "\n".join(f"🔴 {k[2]}" for k in list(broke)[:6]) +
                        "\n\nSo I put everything back. Tell me more about what you want, and I'll try another way.",
                        ok=False)
+    if not _keep_edits(ch, spec, task[:100], f"score {base['score']} → {after['score']}"):
+        job.done("Test the result", "You denied the edits - everything was put back.", ok=False)
+        return _finish(job, f"✏️ Change cancelled: {spec['title'][:40]}",
+                       f"You denied the change \"{task}\", so the site is exactly as it was.", ok=False)
     meta = ch.commit({"score_before": base["score"], "score_after": after["score"], "summary": summary})
     job.done("Test the result", f"Works. Score {base['score']} → {after['score']}")
     body = (f"✏️ Done: {task}\n{summary}\n\nChanged: {', '.join(f['path'] + (' (new)' if f['state'] == 'created' else '') for f in meta['files'])}\n"
@@ -659,6 +684,12 @@ def undo_website(name, what="change", id=""):
         if not rec:
             return "There's no publish to undo."
         return request_publish(name, rec["target"], undo=rec["id"], reason=f"Undo the publish of {rec['at']}")
+    import approve
+    hist = [h for h in sp.history(pdir, 30) if not h.get("undone")]
+    last = next((h for h in hist if h["id"] == id), None) if id else (hist[0] if hist else None)
+    if last:
+        approve.require("edit", f"Undo \"{last['label']}\" on {name}", [f["path"] for f in last["files"][:20]],
+                        reason="The files go back to how they were before that change.")
     target, meta = sp.undo(pdir, id or None)
     return (f"Undone: \"{target['label']}\" ({', '.join(f['path'] for f in target['files'][:8])}). The site in Kakarot "
             f"is back as it was. (This undo can be undone too.) Publish again to update the live site.")

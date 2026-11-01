@@ -112,6 +112,80 @@ Passwords and tokens are saved only on this PC, **encrypted with your Windows lo
 
 Testing PHP sites on this PC needs PHP installed (optional). Without it, Kakarot checks the live site plus the code. React/Vite sites need Node.js to build.
 
+## Asks before it deletes or edits anything
+
+Every delete and every edit pops up in the chat with **Approve** / **Deny**. Kakarot waits until you answer, however long that takes. It doesn't give up or skip ahead, and the job carries on as soon as you answer.
+
+| Kakarot wants to… | You see |
+|---|---|
+| Delete a file or folder (it goes to `_trash`), forget a memory, cancel a reminder or schedule, stop watching a site, remove a self-built ability | 🗑️ red card with what will be deleted (a folder shows the files inside) |
+| Overwrite or change a file (text, Excel, Word, PDF), add text to a file, move or rename it | ✏️ card with the exact change: removed lines in red, new lines in green |
+| Change or fix a website | It edits and tests Kakarot's copy, then asks **"Keep the edits?"** with every changed file and the diff. Deny puts everything back exactly as before. Publishing still needs its own OK. |
+| Undo a website change | ✏️ card listing the files that go back |
+| Click Delete / Remove / Save / Rename / Update… on a website or in a PC app, or press Delete / Ctrl+S on the PC | 🗑️ or ✏️ card with the button and the page or window |
+
+While it waits, you get a Windows pop-up and an Inbox message, then a reminder every 10 minutes. Creating new files and reading things never needs an OK. If you deny, nothing is changed and Kakarot tells you instead of trying another way.
+
+Settings in `config.json`:
+- `ask_before_delete`: `true`
+- `ask_before_edit`: `true`
+- `approval_timeout_minutes`: `0`, which means wait forever
+- `approval_remind_minutes`: `10`
+
+Files inside Kakarot's own new coding projects are the one exception: they don't ask, so building a new site or program isn't interrupted for every file.
+
+## Uses your PC screen like a person
+
+Ask for anything you would do yourself with the mouse and keyboard, from the PC or from your phone:
+*"Open Excel, make a new sheet and type today's trips"*, *"In WhatsApp desktop, open my chat with Rahim and read the last messages"*, *"Open Settings and turn on dark mode"*, *"Rename the files in this folder in File Explorer"*.
+
+**How it sees**
+- It takes a screenshot, and the picture brain describes what's on it, including dialogs and errors.
+- Windows' own accessibility list gives every button, field and menu of the window in front, numbered and with its exact position, so clicks land in the right place.
+- Things not in that list (pictures, games, canvas apps) can be clicked by describing them, for example *"the blue Save button"*. The picture brain then finds them. For better results with this, set `"vision_model": "qwen2.5vl:7b"` in `config.json` and download it with `ollama pull qwen2.5vl:7b`.
+
+**What it can do:** click, double-click and right-click; type in any language (Bangla too); press keys and shortcuts (ctrl+s, alt+tab…); scroll; open apps from the Start menu; and switch between windows. After every step it looks again to check it worked.
+
+**Safety**
+- **Nothing happens until you tap Allow** on the card "Kakarot wants to use your PC screen". The permission is for that one job only and lasts up to 15 minutes (`screen_grant_minutes`).
+- **You can always take over.** Move the mouse and Kakarot stops at once, because it sees you took over. A bar at the top of the chat shows *"Kakarot is using your PC"* with **View**, a live picture of your screen that also works on your phone, and **Stop**.
+- **Risky clicks need a second OK.** Clicking buttons like Send, Delete, Pay, Buy, Submit or Uninstall asks you first.
+- **It never types passwords or card numbers.** It refuses password fields.
+- **Only you can start it.** Scheduled and background jobs can't use the screen.
+
+Notes:
+- **The PC must be awake and unlocked**, because Windows doesn't show apps on the lock screen.
+- **Admin windows don't work.** Apps running "as administrator" ignore its clicks unless Kakarot also runs as administrator.
+- **Turn it off** with `"screen_control": false`.
+
+## Deep research
+
+Ask a big question: *"Research the bus ticket market between Dhaka and Noakhali: prices, operators, problems"*. Add *"do it deep"* for a more thorough job. Kakarot works in the background (Missions tab):
+
+1. **Plans.** It splits the question into 3–7 sub-questions and writes 8–16 searches, in English and also in Bangla when the topic is about Bangladesh.
+2. **Searches and reads.** It runs every search and ranks the pages, so a page found by several searches comes first and no single website takes over. YouTube and social media are skipped. It then reads about 9 sources (16 in deep mode), including PDFs and pages that need a real browser.
+3. **Takes notes.** From each source it writes down only what that source actually says, with a short quote and the page's date.
+4. **Fills gaps (deep mode).** It searches again for any part that only one source covers.
+5. **Cross-checks.** For each part it notes what several sources agree on, where they disagree (for example "900 taka [1] vs 950 taka [2]") and what is still uncertain.
+6. **Writes the report.** The summary comes first, then the details. Every claim has numbered sources, and a source list with sites, dates and links is at the end. Citations to sources that don't exist are removed automatically.
+
+The report is saved as Word and Markdown in `Documents\KakarotWorkspace\reports`, and a summary arrives in your Inbox. If the smart brain (`qwen3:14b`) is installed, it does the planning, cross-checking and writing. Settings: `research_sources`, `research_sources_deep`, `research_smart`.
+
+## Understands every kind of Bengali
+
+Write the way you talk. Kakarot understands:
+- **Standard Bangla**, including Bangla digits (১২৩): *আগামীকাল ঢাকা থেকে নোয়াখালী যাব, সিট আছে?*
+- **Banglish** (Bangla in English letters): *ami kal dhaka jabo, ticket ache?*
+- **Regional dialects**: Sylheti (*kita khobor*), Chittagonian (*আঁই কাইলকা চাটগাঁ যাইয়ুম*), Noakhali, Barishal (*মুই কাইল্লা বরিশাল যামু*), Rangpur, Rajshahi and Dhaka colloquial (*যামু, খামু*).
+- **Mixed** Bangla + English: *amar website ta check koro*
+
+How it works:
+- **It works out the meaning first.** It writes down what your message means in clear Bangla and English, using a word list for each dialect.
+- **It turns date words into real dates.** For example, আজ, কাল/কাইলকা and পরশু become actual calendar dates.
+- **It picks the right abilities.** Bangla messages reach the same tools as English ones.
+
+It replies in your style: Banglish to Banglish, Bangla to simple everyday Bangla, and dialect to warm standard spoken Bangla. Settings in `config.json`: `"bangla_reply": "same"` (default), `"bangla"` or `"english"`, and `"bangla_helper": false` to switch this off.
+
 ## Designs that don't look AI-made
 
 Kakarot's design rules come from three open-source design skills: Taste Skill, Impeccable, and Emil Kowalski's design-engineering skills. The originals and their licences are in `design_skills/`.

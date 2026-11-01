@@ -12,3 +12,4 @@ reportlab>=4.0
 numpy
 pypdfium2
 pillow
+uiautomation>=2.0; sys_platform == "win32"

@@ -201,6 +201,8 @@ def remove_my_tool(name):
     src = os.path.join(DIR, f"{name}.py")
     if not os.path.exists(src):
         return f"No self-built tool called '{name}'."
+    import approve
+    approve.require("delete", f"Remove Kakarot's self-built ability '{name}'", [name])
     shutil.move(src, os.path.join(DISABLED, f"{name}.py"))
     TOOLS.pop(name, None)
     _loaded.discard(name)

@@ -88,10 +88,16 @@ GROUPS = [  # (name, tools or module names, keywords)
      r"remind|every (day|week|month|hour|morning|night)|schedul|daily|weekly|\bat \d|tomorrow|cancel"),
     ("memory", ["forget", "list_memory", "list_notes", "complete_note"], r"remember|forget|memory|\bnotes?\b|to-?do|done|tick"),
     ("missions", ["missions"], r"mission|background|research|compare|in detail|deep"),
+    ("screen", ["desktop"], r"screen|desktop|my pc|computer|laptop|mouse|keyboard|window|click|type|press|open (the |my )?"
+                            r"(app|excel|word|notepad|calculator|chrome|edge|settings|explorer|whatsapp|telegram)|"
+                            r"excel|powerpoint|notepad|paint|file explorer|install|setting|স্ক্রিন|কম্পিউটার|পিসি|ক্লিক"),
+    ("research", ["research"], r"research|investigat|find out|look into|compare|market|competitor|in detail|deep|"
+                               r"report on|analy[sz]|statistic|study|survey|\bwhy\b|গবেষণা|খুঁজে|তথ্য|বিস্তারিত|তুলনা"),
     ("self", ["selfupdate", "plugins"], r"update (your)?self|new version|learn|new abilit|tool for|build (your)?self|"
                                         r"my tools|upgrade"),
 ]
-FILL_ORDER = ["websites", "browser", "office", "code", "lalsobuj", "files", "vision", "missions", "pc", "schedule",
+FILL_ORDER = ["websites", "screen", "research", "browser", "office", "code", "lalsobuj", "files", "vision", "missions", "pc",
+              "schedule",
               "memory", "watch", "self"]
 
 
@@ -219,6 +225,11 @@ def read_file(path):
        "append": B("true to add to the end instead of overwriting.")}, ["path", "content"])
 def write_file(path, content, append=False):
     p = safe_path(path)
+    import approve
+    if append and os.path.exists(p):
+        approve.require("edit", f"Add text to the end of {os.path.basename(p)}", [p], content[:3000])
+    elif not append:
+        approve.before_overwrite(p, content)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, "a" if append else "w", encoding="utf-8") as f:
         f.write(content)
@@ -240,6 +251,13 @@ def move_file(source, destination):
         dst = os.path.join(dst, os.path.basename(src))
     if os.path.exists(dst):
         raise FileExistsError(f"{dst} already exists")
+    if not os.path.exists(src):
+        raise FileNotFoundError(src)
+    import approve
+    same_dir = os.path.dirname(src) == os.path.dirname(dst)
+    approve.require("edit", f"{'Rename' if same_dir else 'Move'} {os.path.basename(src)}"
+                            + (f" to {os.path.basename(dst)}" if same_dir else f" to {os.path.dirname(dst)}"),
+                    [f"from: {src}", f"to:   {dst}"])
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     shutil.move(src, dst)
     return f"Moved {src} -> {dst}"
@@ -249,6 +267,15 @@ def move_file(source, destination):
       {"path": S("Path to remove.")})
 def trash_file(path):
     src = safe_path(path)
+    if not os.path.exists(src):
+        raise FileNotFoundError(src)
+    import approve
+    items = [src]
+    if os.path.isdir(src):
+        inside = [os.path.relpath(os.path.join(dp, f), src) for dp, _, fs in os.walk(src) for f in fs]
+        items += [f"  {x}" for x in inside[:25]] + ([f"  ...and {len(inside) - 25} more"] if len(inside) > 25 else [])
+    approve.require("delete", f"Delete {'the folder' if os.path.isdir(src) else ''} {os.path.basename(src)}".replace("  ", " "),
+                    items, reason="It goes to the _trash folder, so you can still get it back.")
     trash = os.path.join(ROOTS[0], "_trash")
     os.makedirs(trash, exist_ok=True)
     dst = os.path.join(trash, datetime.datetime.now().strftime("%Y%m%d-%H%M%S_") + os.path.basename(src))
@@ -406,6 +433,11 @@ def remember(fact):
 
 @tool("forget", "Delete a remembered fact by its id.", {"fact_id": I("Id from list_memory.")})
 def forget(fact_id):
+    import approve
+    row = db.q("SELECT fact FROM memory WHERE id=?", (int(fact_id),))
+    if not row:
+        return f"There is no remembered fact #{fact_id}."
+    approve.require("delete", "Forget a remembered fact", [row[0]["fact"]])
     db.x("DELETE FROM memory WHERE id=?", (int(fact_id),))
     return "Forgotten."
 
@@ -481,7 +513,9 @@ def list_scheduled():
 
 @tool("cancel_scheduled", "Cancel a reminder or scheduled task by id.", {"job_id": S("Id like t-1a2b3c4d.")})
 def cancel_scheduled(job_id):
+    import approve
     import scheduler
+    approve.require("delete", f"Cancel the reminder / scheduled task {job_id}", [job_id])
     scheduler.remove_job(job_id)
     return f"Cancelled {job_id}."
 

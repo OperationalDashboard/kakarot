@@ -47,6 +47,8 @@ def create_excel(path, rows="", sheets=""):
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
     p = safe_path(path if path.lower().endswith(".xlsx") else path + ".xlsx")
+    import approve
+    approve.before_overwrite(p, what="Excel file")
     book = json.loads(sheets) if sheets else {"Sheet1": rows}
     wb = Workbook()
     wb.remove(wb.active)
@@ -119,6 +121,8 @@ def _blocks(content):
 def create_word(path, title, content):
     import docx
     p = safe_path(path if path.lower().endswith(".docx") else path + ".docx")
+    import approve
+    approve.before_overwrite(p, what="Word document")
     d = docx.Document()
     if title:
         d.add_heading(title, 0)
@@ -150,6 +154,8 @@ def create_pdf(path, title, content):
     from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.platypus import ListFlowable, ListItem, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     p = safe_path(path if path.lower().endswith(".pdf") else path + ".pdf")
+    import approve
+    approve.before_overwrite(p, what="PDF")
     st = getSampleStyleSheet()
     flow = [Paragraph(escape(title), st["Title"]), Spacer(1, 8)] if title else []
     bullets = []

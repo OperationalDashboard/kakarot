@@ -55,5 +55,20 @@
   "site_import_max_files": 8000,
   "github_api": "https://api.github.com",
   "netlify_api": "https://api.netlify.com",
-  "vercel_api": "https://api.vercel.com"
+  "vercel_api": "https://api.vercel.com",
+  "research_sources": 9,
+  "research_sources_deep": 16,
+  "research_smart": true,
+  "research_region": "wt-wt",
+  "bangla_helper": true,
+  "bangla_reply": "same",
+  "screen_control": true,
+  "screen_grant_minutes": 15,
+  "screen_max_steps": 40,
+  "screen_use_vision": true,
+  "screen_takeover_pixels": 60,
+  "ask_before_delete": true,
+  "ask_before_edit": true,
+  "approval_timeout_minutes": 0,
+  "approval_remind_minutes": 10
 }

@@ -115,7 +115,18 @@ def web_read():
 def web_click(number):
     def go():
         p = _page()
-        _el(p, number).click(timeout=15000)
+        el = _el(p, number)
+        try:
+            label = (el.inner_text(timeout=3000) or el.get_attribute("aria-label") or el.get_attribute("value") or
+                     el.get_attribute("title") or "").strip()[:120]
+        except Exception:
+            label = ""
+        import approve
+        k = approve.kind_of(label)
+        if k:
+            approve.require(k, f"Click '{label}' on {p.url[:80]}", [f"button/link: {label}", f"page: {p.url}"],
+                            reason="This click may delete or change something on that website.")
+        el.click(timeout=15000)
         _settle(p)
         return _snapshot(p, f"Clicked [{number}].\n")
     return _run(go)
