@@ -114,6 +114,38 @@
   .form{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px} .form input{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;font-size:13px;background:var(--panel);color:var(--ink);min-width:0}
   .form label{font-size:12px;color:var(--muted);display:flex;gap:5px;align-items:center} .form .full{grid-column:1/-1}
   .msgline{font-size:12.5px;margin-top:6px;white-space:pre-wrap}
+  /* chat feel: Markdown replies, gentle motion, typing dots, stop, plan, reconnect */
+  .msg{animation:rise .22s ease-out both}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion: reduce){.msg{animation:none}}
+  .msg.assistant .b{white-space:normal;line-height:1.55;position:relative}
+  .md>*:first-child{margin-top:0}.md>*:last-child{margin-bottom:0}
+  .md p{margin:0 0 .6em}.md ul,.md ol{margin:.2em 0 .7em;padding-left:1.4em}.md li{margin:.15em 0}
+  .md h1,.md h2,.md h3,.md h4{margin:.8em 0 .35em;line-height:1.3}.md h1{font-size:1.25em}.md h2{font-size:1.15em}.md h3,.md h4{font-size:1.03em}
+  .md code{background:var(--code);padding:.1em .35em;border-radius:5px;font:13px/1.4 Consolas,"Cascadia Mono",monospace}
+  .md pre{background:var(--code);padding:10px 12px;border-radius:10px;overflow:auto;margin:.4em 0 .8em;position:relative}
+  .md pre code{background:none;padding:0;white-space:pre}
+  .md blockquote{margin:.4em 0;padding:.1em .8em;border-left:3px solid var(--line);color:var(--muted)}
+  .md table{border-collapse:collapse;margin:.4em 0 .8em;font-size:14px;display:block;overflow-x:auto;max-width:100%}
+  .md th,.md td{border:1px solid var(--line);padding:5px 9px;text-align:left;vertical-align:top}
+  .md th{background:var(--code)} .md hr{border:0;border-top:1px solid var(--line);margin:.8em 0}
+  .md a{color:var(--accent);word-break:break-word}
+  .tools{display:flex;gap:6px;max-width:780px;margin:-8px auto 12px;padding-left:2px}
+  .tools button{background:none;border:0;color:var(--muted);font:inherit;font-size:12px;cursor:pointer;padding:2px 4px;border-radius:6px}
+  .tools button:hover{background:var(--code);color:var(--ink)}
+  .dots{display:inline-flex;gap:4px;vertical-align:middle;margin-left:6px}
+  .dots i{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:blink 1.2s infinite both}
+  .dots i:nth-child(2){animation-delay:.2s}.dots i:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}
+  #send.stop{background:#e5484d;color:#fff}
+  .plan{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 12px;margin:4px 0 6px}
+  .plan b{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  .plan ol{margin:4px 0 0;padding-left:20px} .plan li{padding:1px 0} .plan.fin li{color:var(--accent)} .plan.fin li::marker{content:"✓ "}
+  #net{display:none;position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:50;background:#1d2320;color:#fff;border-radius:20px;padding:6px 14px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+  #net.on{display:block}
+  #down{display:none;position:absolute;right:22px;bottom:84px;z-index:6;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:20px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.12)}
+  #down.on{display:block}
+  main{position:relative} #chat{scroll-behavior:auto;overscroll-behavior:contain}
   @media (max-width:800px){ #modal{padding:0} #modal .box{border-radius:0;height:100%} .form{grid-template-columns:1fr} }
   #menu{display:none;background:none;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:4px 10px;font-size:16px;cursor:pointer}
   #shade{display:none}
@@ -151,6 +183,8 @@
   <div id="shade"></div>
   <header><button id="menu" title="Chats, inbox, schedules, notes">☰<span id="badge2"></span></button><span id="title">Chat</span><span id="status">checking…</span><button class="ghost" id="clear">New chat</button></header>
   <div id="chat"></div>
+  <button id="down" type="button">↓ New messages</button>
+  <div id="net">Reconnecting to Kakarot…</div>
   <div id="files"></div>
   <form id="f"><input type="file" id="pick" multiple hidden accept="image/*,.pdf,.docx,.xlsx,.xlsm,.csv,.txt,.md"><button type="button" id="attach" title="Attach a photo or file">📎</button><button type="button" id="smart" title="Smart mode: bigger brain for hard tasks (slower)">🧠 Smart</button><textarea id="t" placeholder="Tell Kakarot what to do…  (Enter to send, Shift+Enter for new line)"></textarea><button id="send">Send</button></form>
 </main>
@@ -178,12 +212,68 @@ const EXAMPLES = [
   "Check github.com/kakarotshi0-commits/greenwonderland and publish the fixes back to GitHub"
 ];
 
-function addMsg(role, text){
+// Small, safe Markdown for replies (text is escaped first, so nothing in a reply can run as code)
+function md(src){
+  const blocks = [], inl = t => linkify(t)
+    .replace(/`([^`\n]+)`/g, (m, c) => `<code>${c}</code>`)
+    .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>").replace(/__([^_\n]+)__/g, "<b>$1</b>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g, "$1<i>$2</i>")
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]*)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  let t = esc(String(src ?? "")).replace(/\r/g, "");
+  t = t.replace(/```[\w-]*\n?([\s\S]*?)(```|$)/g, (m, c) => { blocks.push(`<pre><code>${c.replace(/\n$/, "")}</code></pre>`); return `\u0000${blocks.length - 1}\u0000`; });
+  const out = [], lines = t.split("\n"); let i = 0;
+  const isRow = l => /^\s*\|.*\|\s*$/.test(l);
+  while(i < lines.length){
+    const l = lines[i];
+    if(/^\u0000\d+\u0000$/.test(l.trim())){ out.push(l.trim()); i++; continue; }
+    if(!l.trim()){ i++; continue; }
+    let h = l.match(/^(#{1,4})\s+(.*)$/); if(h){ out.push(`<h${h[1].length}>${inl(h[2])}</h${h[1].length}>`); i++; continue; }
+    if(/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(l)){ out.push("<hr>"); i++; continue; }
+    if(isRow(l) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1])){
+      const cells = r => r.trim().replace(/^\||\|$/g, "").split("|").map(c => inl(c.trim()));
+      let html = "<table><tr>" + cells(l).map(c => `<th>${c}</th>`).join("") + "</tr>"; i += 2;
+      while(i < lines.length && isRow(lines[i])){ html += "<tr>" + cells(lines[i]).map(c => `<td>${c}</td>`).join("") + "</tr>"; i++; }
+      out.push(html + "</table>"); continue;
+    }
+    if(/^\s*&gt;\s?/.test(l)){ const q = []; while(i < lines.length && /^\s*&gt;\s?/.test(lines[i])){ q.push(inl(lines[i].replace(/^\s*&gt;\s?/, ""))); i++; } out.push(`<blockquote>${q.join("<br>")}</blockquote>`); continue; }
+    const li = /^\s*([-*•]|\d+[.)])\s+(.*)$/;
+    if(li.test(l)){
+      const ordered = /^\s*\d/.test(l), items = [];
+      while(i < lines.length && (li.test(lines[i]) || (/^\s{2,}\S/.test(lines[i]) && items.length))){
+        const m = lines[i].match(li); if(m) items.push(inl(m[2])); else items[items.length - 1] += "<br>" + inl(lines[i].trim()); i++;
+      }
+      out.push(`<${ordered ? "ol" : "ul"}>${items.map(x => `<li>${x}</li>`).join("")}</${ordered ? "ol" : "ul"}>`); continue;
+    }
+    const p = []; while(i < lines.length && lines[i].trim() && !/^(#{1,4}\s|\s*([-*•]|\d+[.)])\s|\s*&gt;|\u0000|\s*[-*_]{3,}\s*$)/.test(lines[i]) && !(isRow(lines[i]) && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1] || ""))){ p.push(inl(lines[i])); i++; }
+    if(p.length) out.push(`<p>${p.join("<br>")}</p>`); else { out.push(`<p>${inl(l)}</p>`); i++; }
+  }
+  return out.join("").replace(/\u0000(\d+)\u0000/g, (m, n) => blocks[+n]);
+}
+const chatEl = () => $("#chat");
+const nearBottom = () => { const c = chatEl(); return c.scrollHeight - c.scrollTop - c.clientHeight < 140; };
+let follow = true;
+function stick(force){
+  const c = chatEl();
+  if(force || follow){ c.scrollTop = c.scrollHeight; $("#down").classList.remove("on"); }
+  else $("#down").classList.add("on");
+}
+function setBody(b, role, text){
+  if(role === "assistant"){ b.classList.add("md"); b.innerHTML = md(text); }
+  else b.innerHTML = linkify(esc(text));
+}
+function addTools(d, text){
+  const t = document.createElement("div"); t.className = "tools";
+  t.innerHTML = `<button title="Copy this reply">Copy</button>`;
+  t.firstChild.onclick = async () => { try{ await navigator.clipboard.writeText(text); t.firstChild.textContent = "Copied ✓"; }catch(e){ t.firstChild.textContent = "Can't copy here"; } setTimeout(() => t.firstChild.textContent = "Copy", 1600); };
+  d.after(t);
+}
+function addMsg(role, text, opts){
   $("#chat").querySelector(".empty")?.remove();
   const d = document.createElement("div"); d.className = "msg " + role;
   if(role === "user") text = String(text).replace(/\n*\[Attached file: [^\]]*?([^\\/\]]+)\]/g, "\n📎 $1").trim();
-  d.innerHTML = `<div class="b">${linkify(esc(text))}</div>`; $("#chat").append(d);
-  $("#chat").scrollTop = 1e9; return d;
+  d.innerHTML = `<div class="b"></div>`; setBody(d.firstChild, role, text); $("#chat").append(d);
+  if(role === "assistant" && !(opts && opts.noTools)) addTools(d, text);
+  stick(role === "user"); return d;
 }
 function addSteps(steps){
   if(!steps?.length) return;
@@ -192,6 +282,12 @@ function addSteps(steps){
     steps.map(s=>`<pre><b>${esc(s.tool)}</b> ${esc(JSON.stringify(s.args))}\n→ ${esc(s.result)}</pre>`).join("");
   $("#chat").append(d);
 }
+chatEl().addEventListener("scroll", () => { follow = nearBottom(); if(follow) $("#down").classList.remove("on"); }, {passive:true});
+$("#down").onclick = () => { follow = true; stick(true); };
+const ta = $("#t");
+function grow(){ ta.style.height = "46px"; if(ta.value) ta.style.height = Math.min(ta.scrollHeight + 2, 160) + "px"; }
+ta.addEventListener("input", grow);
+if(window.innerWidth <= 800) ta.placeholder = "Message Kakarot…";
 function showEmpty(){
   $("#chat").innerHTML = `<div class="empty"><h2>What should I do?</h2>I run fully on this PC. I can use websites, make Excel/Word/PDF files, read photos 📎, search inside your documents, write and test real programs, build websites and check / fix / publish your existing ones, learn something new every night, run big jobs as background Missions, watch your website and run PC commands with your OK. Turn on 🧠 Smart for hard jobs.<div class="chips">${EXAMPLES.map(e=>`<button>${esc(e)}</button>`).join("")}</div></div>`;
   $("#chat").querySelectorAll(".chips button").forEach(b => b.onclick = () => { $("#t").value = b.textContent; $("#t").focus(); });
@@ -208,18 +304,23 @@ function paintFiles(){
 $("#attach").onclick = () => $("#pick").click();
 $("#pick").onchange = () => { attached.push(...$("#pick").files); $("#pick").value = ""; paintFiles(); $("#t").focus(); };
 
+let working = false, pendingWait = null;
+function paintSend(){ const b = $("#send"); b.textContent = working ? "■ Stop" : "Send"; b.classList.toggle("stop", working); b.title = working ? "Stop Kakarot" : ""; }
 async function send(e){
   e?.preventDefault();
-  if($("#send").disabled) return;
+  if(working){ $("#send").textContent = "Stopping…"; api("/api/chat/stop", {method:"POST"}).catch(() => {}); return; }
   let text = $("#t").value.trim(); if(!text && !attached.length) return;
   const files = attached.splice(0); paintFiles();
   if(!text) text = files.length > 1 ? "Look at the attached files and tell me what's in them." : "Look at the attached file and tell me what's in it.";
-  $("#t").value = ""; addMsg("user", text + (files.length ? "\n📎 " + files.map(f => f.name).join(", ") : ""));
-  const wait = addMsg("assistant", files.length ? "Uploading…" : "Working on it…"); const bub = wait.querySelector(".b"); bub.classList.add("thinking");
-  const live = document.createElement("div"); live.className = "live"; $("#chat").append(live);
-  $("#send").disabled = true;
+  $("#t").value = ""; grow(); follow = true; addMsg("user", text + (files.length ? "\n📎 " + files.map(f => f.name).join(", ") : ""));
+  const wait = addMsg("assistant", "", {noTools:true}); const bub = wait.querySelector(".b");
+  const think = label => { bub.classList.add("thinking"); bub.classList.remove("md"); bub.innerHTML = esc(label) + '<span class="dots"><i></i><i></i><i></i></span>'; };
+  think(files.length ? "Uploading" : "Working on it");
+  const live = document.createElement("div"); live.className = "live"; wait.after(live);
+  working = true; paintSend(); pendingWait = null;
   const ap = setInterval(checkApprovals, 1500);
-  let msg = text, got = false, words = "";
+  let msg = text, got = false, words = "", raf = 0, planEl = null;
+  const paint = () => { raf = 0; bub.classList.remove("thinking"); bub.classList.add("md"); bub.innerHTML = md(words); stick(); };
   try{
     if(files.length){
       const fd = new FormData(); files.forEach(f => fd.append("files", f, f.name));
@@ -227,7 +328,7 @@ async function send(e){
       if(up.status === 401){ location.href = "/login"; return; }
       const saved = await up.json();
       msg += "\n\n" + saved.map(f => `[Attached file: ${f.path}]`).join("\n");
-      bub.textContent = "Working on it…";
+      think("Working on it");
     }
     const res = await fetch("/api/chat/stream", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({message:msg, conversation_id:conv, smart:smart})});
     if(res.status === 401){ location.href = "/login"; return; }
@@ -235,13 +336,17 @@ async function send(e){
     const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "", lastLine = null, thinkEl = null;
     const handle = ev => {
       if(ev.type === "start"){ conv = ev.conversation_id; store.set("kakarot_conv", conv); }
-      else if(ev.type === "status"){ bub.textContent = ev.text; }
+      else if(ev.type === "status"){ think(ev.text.replace(/…$/, "")); }
+      else if(ev.type === "plan"){ planEl = document.createElement("div"); planEl.className = "plan"; planEl.innerHTML = `<b>Plan</b><ol>${ev.steps.map(x => `<li>${esc(x)}</li>`).join("")}</ol>`; live.prepend(planEl); stick(); }
+      else if(ev.type === "check"){ const l = document.createElement("div"); l.className = ev.ok ? "ok" : "bad"; l.textContent = ev.ok ? "✓ Double-checked the work" : "🔍 Double-check found: " + ev.text + " - fixing it"; live.append(l); stick(); }
       else if(ev.type === "thinking_start"){ words = ""; }
       else if(ev.type === "thinking"){ if(!thinkEl){ thinkEl = document.createElement("div"); thinkEl.className = "think"; live.prepend(thinkEl); } thinkEl.textContent = ("💭 " + (thinkEl.textContent.slice(2) + ev.text)).slice(-260); }
-      else if(ev.type === "token"){ words += ev.text; bub.classList.remove("thinking"); bub.textContent = words; $("#chat").scrollTop = 1e9; }
-      else if(ev.type === "step_start"){ words = ""; bub.classList.add("thinking"); bub.textContent = "Working on it…"; lastLine = document.createElement("div"); lastLine.textContent = "⏳ " + stepText(ev.tool, ev.args); live.append(lastLine); $("#chat").scrollTop = 1e9; }
+      else if(ev.type === "token"){ words += ev.text; if(!raf) raf = requestAnimationFrame(paint); }
+      else if(ev.type === "step_start"){ words = ""; think("Working on it"); lastLine = document.createElement("div"); lastLine.textContent = "⏳ " + stepText(ev.tool, ev.args); live.append(lastLine); stick(); }
       else if(ev.type === "step_done"){ if(lastLine){ lastLine.textContent = lastLine.textContent.replace("⏳", ev.ok ? "✓" : "✗"); lastLine.className = ev.ok ? "ok" : "bad"; } }
-      else if(ev.type === "done"){ got = true; live.remove(); bub.classList.remove("thinking"); bub.innerHTML = linkify(esc(ev.reply)); addSteps(ev.steps); }
+      else if(ev.type === "done"){ got = true; if(raf) cancelAnimationFrame(raf); bub.classList.remove("thinking"); setBody(bub, "assistant", ev.reply); addTools(wait, ev.reply);
+        if(planEl){ planEl.classList.add("fin"); planEl.querySelector("b").textContent = "Plan ✓"; const keep = planEl; live.replaceWith(keep); keep.style.maxWidth = "780px"; keep.style.margin = "-6px auto 14px"; } else live.remove();
+        addSteps(ev.steps); stick(); }
       else if(ev.type === "error"){ got = true; live.remove(); wait.remove(); addMsg("err", ev.error + (ev.hint ? "\n\n" + ev.hint : "")); }
     };
     while(true){
@@ -255,10 +360,12 @@ async function send(e){
     if(!got) throw new Error("cut");
   }catch(err){
     live.remove();
-    if(!got){ bub.classList.remove("thinking"); bub.textContent = "The connection dropped, but Kakarot keeps working and saves the answer. Open this chat again in a minute to see it."; wait.className = "msg err"; }
+    if(!got){ think("The connection dropped, but Kakarot keeps working - the answer will appear here by itself"); pendingWait = wait; }
+  }finally{
+    clearInterval(ap); checkApprovals(); working = false; paintSend();
+    if(pendingWait) syncChat(); else syncChat(true);
+    renderSide(); if(window.innerWidth > 800) $("#t").focus();
   }
-  clearInterval(ap); checkApprovals(); syncChat(true);
-  $("#send").disabled = false; renderSide(); if(window.innerWidth > 800) $("#t").focus();
 }
 $("#f").onsubmit = send;
 let smart = store.get("kakarot_smart") === "1";
@@ -273,7 +380,7 @@ function publishCard(t, reason){
 // from - show them here as soon as they arrive.
 let syncing = false;
 async function syncChat(markOnly){
-  if(!conv || syncing || (!markOnly && $("#send").disabled)) return;
+  if(!conv || syncing || (!markOnly && working)) return;
   syncing = true;
   try{
     const id = conv, msgs = await api("/api/conversations/" + id);
@@ -281,6 +388,9 @@ async function syncChat(markOnly){
     const fresh = msgs.filter(m => m.id > convLast);
     if(!markOnly && convLast) for(const m of fresh){
       if(m.role === "user") continue;
+      if(pendingWait && pendingWait.isConnected){ const pw = pendingWait; pendingWait = null; const b = pw.querySelector(".b"); b.classList.remove("thinking");
+        if(m.role === "error"){ pw.className = "msg err"; b.classList.remove("md"); b.textContent = m.content; } else { setBody(b, "assistant", m.content); addTools(pw, m.content); addSteps(m.steps); }
+        stick(); continue; }
       addMsg(m.role === "error" ? "err" : m.role, m.content); if(m.role === "assistant") addSteps(m.steps);
       if(document.hidden){ document.title = "● Kakarot"; if(window.Notification && Notification.permission === "granted") new Notification("Kakarot", {body: String(m.content).slice(0, 200)}); }
     }
@@ -317,7 +427,7 @@ async function checkApprovals(onlyPublish){
     const answer = async ok => { d.querySelectorAll("button").forEach(b => b.disabled = true); await api("/api/approvals/" + a.id, {method:"POST", body:JSON.stringify({approve: ok})}); d.remove(); if(a.kind === "publish" && ok) addMsg("assistant", "🚀 Publishing started - follow it in the Websites tab. The result will appear here in this chat."); if(tab === "websites") renderSide(); };
     d.querySelector(".yes").onclick = () => answer(true);
     d.querySelector(".no").onclick = () => answer(false);
-    $("#chat").append(d); $("#chat").scrollTop = 1e9;
+    $("#chat").append(d); stick();
   }
   if(!onlyPublish) document.querySelectorAll(".approve").forEach(e => { if(!list.some(a => "ap" + a.id === e.id)) e.remove(); });
 }
@@ -336,7 +446,9 @@ async function openChat(id){
   conv = id; store.set("kakarot_conv", id);
   $("#chat").innerHTML = "";
   if(!msgs.length) showEmpty();
+  pendingWait = null; follow = true;
   msgs.forEach(m => { addMsg(m.role === "error" ? "err" : m.role, m.content); if(m.role === "assistant") addSteps(m.steps); });
+  stick(true);
   convLast = msgs.length ? msgs[msgs.length - 1].id : 0;
   document.body.classList.remove("open"); if(tab === "chats") renderSide();
 }
@@ -410,7 +522,10 @@ async function renderSide(){
     $("#brief").onclick = async () => { const r = await api("/api/brief", {method:"POST"}); $("#brief").textContent = r.message; };
   } else {
     const mem = await api("/api/memory");
-    s.innerHTML = mem.map(m => `<div class="card"><button class="x" data-id="${m.id}" title="Forget">✕</button>${esc(m.fact)}</div>`).join("") || `<small>Things Kakarot remembers about you appear here.</small>`;
+    const KL = {preference:"How you like things", person:"People", project:"Projects", fact:"Other facts"};
+    s.innerHTML = mem.length ? `<small>Kakarot notices lasting facts by itself (marked ✨) and uses only the ones that matter for each message. Never passwords or codes.</small>` +
+      ["preference","person","project","fact"].map(k => { const g = mem.filter(m => (m.kind || "fact") === k); return g.length ? `<div class="sec">${KL[k]}</div>` + g.map(m => `<div class="card"><button class="x" data-id="${m.id}" title="Forget">✕</button>${m.auto ? "✨ " : ""}${esc(m.fact)}</div>`).join("") : ""; }).join("")
+      : `<small>Things Kakarot remembers about you appear here. It notices lasting facts by itself (like how you want replies, your people and projects) - never passwords or codes.</small>`;
     s.querySelectorAll(".x").forEach(b => b.onclick = async () => { await api("/api/memory/" + b.dataset.id, {method:"DELETE"}); renderSide(); });
   }
 }
@@ -548,6 +663,22 @@ async function poll(){
   }catch(e){}
 }
 window.addEventListener("focus", () => document.title = "Kakarot");
+// Connection watch: shows "Reconnecting…" when Kakarot can't be reached and catches up when it's back
+let fails = 0, lastWarm = 0;
+async function pulse(){
+  try{
+    const r = await fetch("/api/pulse" + (conv ? "?conv=" + conv : ""), {cache:"no-store"});
+    if(r.status === 401){ location.href = "/login"; return; }
+    const p = await r.json();
+    if(fails >= 2){ $("#net").textContent = "Connected ✓"; setTimeout(() => $("#net").classList.remove("on"), 1200); lastWarm = 0; warmup(); }
+    fails = 0;
+    if(conv && !working && p.conv_last > convLast) syncChat();
+  }catch(e){
+    fails++;
+    if(fails >= 2){ $("#net").textContent = "Reconnecting to Kakarot…"; $("#net").classList.add("on"); }
+  }
+}
+function warmup(){ if(Date.now() - lastWarm < 600000) return; lastWarm = Date.now(); fetch("/api/warmup", {method:"POST"}).catch(() => {}); }
 
 (async function init(){
   const st = await api("/api/status").catch(() => null);
@@ -559,7 +690,8 @@ window.addEventListener("focus", () => document.title = "Kakarot");
   }
   const last = store.get("kakarot_conv");
   if(last) await openChat(+last); else showEmpty();
-  renderSide(); poll(); setInterval(poll, 15000); setInterval(checkScreen, 3000); setInterval(() => syncChat(), 4000); setInterval(() => checkApprovals(), 2500); checkApprovals();
+  renderSide(); poll(); setInterval(poll, 15000); setInterval(checkScreen, 3000); setInterval(pulse, 3000); setInterval(() => checkApprovals(), 2500); checkApprovals();
+  warmup(); document.addEventListener("visibilitychange", () => { if(!document.hidden) warmup(); });
   setInterval(() => { if((tab === "missions" || tab === "websites") && !document.activeElement?.closest?.("#side")) renderSide(); }, 6000);
   if(window.Notification && Notification.permission === "default") Notification.requestPermission();
 })();
