@@ -1,6 +1,7 @@
 @echo off
 title Kakarot - start with Windows
 cd /d "%~dp0"
+if exist data\no-autostart del data\no-autostart
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$s = (New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Startup') + '\Kakarot.lnk');" ^
   "$s.TargetPath = '%~dp0start.bat'; $s.WorkingDirectory = '%~dp0'; $s.WindowStyle = 7;" ^

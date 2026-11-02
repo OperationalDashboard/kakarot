@@ -9,7 +9,7 @@
   ],
   "max_steps": 12,
   "history_messages": 16,
-  "context_tokens": 8192,
+  "context_tokens": 12288,
   "open_browser_on_start": true,
   "phone_access": true,
   "public_access": true,
@@ -70,5 +70,12 @@
   "ask_before_delete": true,
   "ask_before_edit": true,
   "approval_timeout_minutes": 0,
-  "approval_remind_minutes": 10
+  "approval_remind_minutes": 10,
+  "keep_model_loaded": "4h",
+  "plan_and_check": true,
+  "auto_memory": true,
+  "memory_recall": 10,
+  "keep_pc_awake": "plugged_in",
+  "auto_start": true,
+  "tool_budget_chars": 12500
 }

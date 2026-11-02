@@ -86,6 +86,10 @@ def init():
                 c.execute("ALTER TABLE missions ADD COLUMN kind TEXT DEFAULT 'agent'")
             if "data" not in mcols:
                 c.execute("ALTER TABLE missions ADD COLUMN data TEXT")
+            mem = _columns(c, "memory")
+            for col, typ in (("kind", "TEXT DEFAULT 'fact'"), ("emb", "TEXT"), ("auto", "INTEGER DEFAULT 0")):
+                if col not in mem:
+                    c.execute(f"ALTER TABLE memory ADD COLUMN {col} {typ}")
             if "chat_id" not in _columns(c, "jobs"):
                 c.execute("ALTER TABLE jobs ADD COLUMN chat_id INTEGER")
             c.commit()

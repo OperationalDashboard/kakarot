@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import threading
+import time
 
 import requests
 
@@ -13,6 +14,10 @@ from config import CFG
 
 _lock = threading.Lock()  # one task at a time so a 16 GB PC isn't overloaded
 _tls = threading.local()  # marks "this thread is already inside a task"
+_want = 0  # chats waiting for the brain: background jobs step aside for them
+_want_guard = threading.Lock()
+_stop = threading.Event()  # the Stop button in the chat
+_warm = {"at": 0}
 log = logging.getLogger("kakarot.agent")
 
 SYSTEM = """You are {name}, a personal assistant running 100% locally on the user's Windows PC.
@@ -21,11 +26,9 @@ CONTROLLING websites (click, type, fill forms), running PC commands (with the us
 pictures, searching inside the user's own documents, background missions, website monitoring,
 notes, reminders, long-term memory and scheduled tasks.
 
-Current local time: {time}
 Folders you may work in: {folders}  (relative paths go into the first one)
-
-Things you remember about the user:
-{memory}
+The current time and the things you remember about the user that matter for this message are given in a note
+right before the user's latest message.
 
 Lessons you learned from past work (follow them):
 {lessons}
@@ -82,21 +85,152 @@ How to work:
 - Every DELETE or EDIT (overwriting/changing/moving a file, trash_file, forget, cancel_scheduled, website edits,
   undo, Save/Delete/Send clicks) shows the user an Approve/Deny card and waits for their answer - just call the
   tool and wait. If the user DENIES, nothing changed: stop that action, say so, and don't try it another way.
-- When finished, reply briefly and clearly with what you did and the result. Reply in the user's language.
+- UNDERSTAND THE USER: read the whole conversation. "it", "that", "the file", "do it again", "same for X" refer to
+  earlier messages and actions. Pick the most likely meaning and do it; if you had to assume something, say the
+  assumption in one short line. Ask a question ONLY when a wrong guess would delete, send, publish or pay for
+  something, or when the request truly can't be started. Never ask for things you can find out with your tools.
+- If a PLAN is given in the note, follow it step by step (adapt it if a step turns out impossible).
+- When finished, reply briefly and clearly with what you did and the result - only claim what your tools actually
+  did. Use short Markdown (bold, lists, tables) when it helps reading. Reply in the user's language.
 {extra}"""
 
 
 def _system(background):
-    mem = db.q("SELECT fact FROM memory ORDER BY id")
+    """Kept the same from message to message (no clock, no per-message memory), so the brain can reuse its
+    work on it and start answering much faster."""
     return SYSTEM.format(
         name=CFG.get("name", "Kakarot"),
-        time=datetime.datetime.now().strftime("%A %d %B %Y, %H:%M"),
         folders=", ".join(CFG["allowed_folders"]),
-        memory="\n".join(f"- {m['fact']}" for m in mem) or "(nothing yet)",
         lessons=_lessons() or "(none yet)",
         extra="- This is a scheduled background run: nobody is watching. Finish the task fully and give a "
               "short report. Do not create new schedules." if background else "",
     )
+
+
+def _note(user_text, plan=None):
+    """Per-message note placed right before the user's message: time, relevant memories, plan."""
+    lines = [f"Now: {datetime.datetime.now().strftime('%A %d %B %Y, %H:%M')}."]
+    try:
+        import recall
+        mem = recall.context(user_text)
+    except Exception:
+        mem = "\n".join(f"- {m['fact']}" for m in db.q("SELECT fact FROM memory ORDER BY id")[-30:])
+    lines.append("What you remember about the user that may matter here:\n" + (mem or "(nothing yet)"))
+    if plan:
+        lines.append("PLAN for this request (follow it, then answer):\n" +
+                     "\n".join(f"{i}. {s}" for i, s in enumerate(plan, 1)))
+    return "\n\n".join(lines)
+
+
+def _tok(s):
+    """Rough token count (Bangla letters cost more tokens than English ones)."""
+    s = s or ""
+    a = sum(1 for ch in s if ord(ch) < 128)
+    return a / 3.6 + (len(s) - a) / 1.3
+
+
+def _mtok(m):
+    t = _tok(m.get("content")) + 8
+    if m.get("tool_calls"):
+        t += _tok(json.dumps(m["tool_calls"], ensure_ascii=False))
+    return t
+
+
+def _fit(msgs, budget, pinned=()):
+    """Make the conversation fit the brain's memory: the instructions, the user's current request (and its note)
+    and the newest messages are never cut; long old messages and tool results are shortened first, then the
+    oldest ones are dropped."""
+    pin = {id(m) for m in pinned}
+    total = sum(_mtok(m) for m in msgs)
+    if total <= budget:
+        return msgs
+    free = lambda i: i > 0 and id(msgs[i]) not in pin and i < len(msgs) - 2
+    for cap in (1500, 600, 250):
+        for i in range(len(msgs)):
+            c = msgs[i].get("content") or ""
+            if free(i) and len(c) > cap:
+                total -= _mtok(msgs[i])
+                msgs[i] = {**msgs[i], "content": c[:cap] + " …(shortened)"}
+                total += _mtok(msgs[i])
+        if total <= budget:
+            return msgs
+    i = 1
+    while total > budget and i < len(msgs) - 2:
+        if free(i):
+            total -= _mtok(msgs.pop(i))
+        else:
+            i += 1
+    if total > budget:  # a huge request or newest result: shorten it too
+        for i in range(len(msgs) - 1, 0, -1):
+            c = msgs[i].get("content") or ""
+            over = int((total - budget) * 3.2)
+            if len(c) > 2000 and over > 0:
+                keep = max(1500, len(c) - over)
+                total -= _mtok(msgs[i])
+                msgs[i] = {**msgs[i], "content": c[:keep] + " …(cut to fit)"}
+                total += _mtok(msgs[i])
+            if total <= budget:
+                break
+    return msgs
+
+
+def _acquire(foreground):
+    """The brain does one job at a time. A chat goes first: background jobs wait while a chat is waiting."""
+    global _want
+    if foreground:
+        with _want_guard:
+            _want += 1
+        try:
+            _lock.acquire()
+        finally:
+            with _want_guard:
+                _want -= 1
+        return
+    while True:
+        _lock.acquire()
+        if not _want:
+            return
+        _lock.release()
+        time.sleep(0.3)
+
+
+def _step_aside():
+    """Called by background jobs between steps: if a chat is waiting, let it use the brain first."""
+    if _want:
+        _lock.release()
+        t0 = time.time()
+        while _want and time.time() - t0 < 5:
+            time.sleep(0.2)
+        _acquire(False)
+
+
+def stop():
+    """Stop button: the running chat reply stops after the current word / action."""
+    _stop.set()
+
+
+def busy():
+    return _lock.locked()
+
+
+def warm():
+    """Load the brain and pre-read the fixed instructions, so the next reply starts fast. Skipped when busy."""
+    if time.time() - _warm["at"] < 120 or not _lock.acquire(blocking=False):
+        return False
+    try:
+        ctx = int(CFG.get("context_tokens", 12288))
+        msgs = [{"role": "system", "content": _system(False)}, {"role": "user", "content": "hi"}]
+        body = {"model": CFG["model"], "messages": msgs, "stream": False, "think": False,
+                "tools": tools.schemas_for(msgs, ctx), "keep_alive": CFG.get("keep_model_loaded", "4h"),
+                "options": {"num_ctx": ctx, "temperature": 0.3, "num_predict": 1}}
+        requests.post(CFG["ollama_url"].rstrip("/") + "/api/chat", json=body, timeout=600)
+        _warm["at"] = time.time()
+        return True
+    except Exception as e:
+        log.debug("warm-up failed: %s", e)
+        return False
+    finally:
+        _lock.release()
 
 
 def _lessons():
@@ -123,18 +257,24 @@ def _has(name, names):
     return name in names or f"{name}:latest" in names
 
 
-def call_model(messages, smart=False, on_event=None, use_tools=True, fmt=None):
+def _ctx_size(smart=False):
+    if smart:
+        return int(CFG.get("smart_context_tokens", 12288))
+    return int(CFG.get("context_tokens", 12288))
+
+
+def call_model(messages, smart=False, on_event=None, use_tools=True, fmt=None, schemas=None, stoppable=False):
     """One model turn. With on_event, the reply is streamed: on_event({'type':'token'|'thinking','text':...})."""
-    model, ctx, think = CFG["model"], int(CFG.get("context_tokens", 8192)), CFG.get("deep_thinking", False)
+    model, ctx, think = CFG["model"], _ctx_size(), CFG.get("deep_thinking", False)
     if smart:  # Smart mode: bigger brain + thinking, slower but better for hard tasks
         model = CFG.get("smart_model", "qwen3:14b")
-        ctx = int(CFG.get("smart_context_tokens", 12288))
+        ctx = _ctx_size(True)
         think = True
     body = {"model": model, "messages": messages, "stream": bool(on_event),
-            "keep_alive": CFG.get("keep_model_loaded", "30m"),  # stay in memory -> later replies are fast
+            "keep_alive": CFG.get("keep_model_loaded", "4h"),  # stay in memory -> later replies are fast
             "options": {"num_ctx": ctx, "temperature": 0.3}}
     if use_tools:
-        body["tools"] = tools.schemas_for(messages, ctx)
+        body["tools"] = schemas if schemas is not None else tools.schemas_for(messages, ctx)
     if fmt:
         body["format"] = fmt
     if not think:
@@ -150,6 +290,10 @@ def call_model(messages, smart=False, on_event=None, use_tools=True, fmt=None):
         return r.json()["message"]
     content, calls = [], []
     for line in r.iter_lines():
+        if stoppable and _stop.is_set():
+            r.close()
+            calls = []
+            break
         if not line:
             continue
         chunk = json.loads(line)
@@ -183,10 +327,20 @@ def run_agent(user_text, conversation_id=None, background=False, save_history=No
     cid = conversation_id
     history = []
     if cid:
-        rows = db.get_messages(cid, limit=int(CFG.get("history_messages", 16)))
-        history = [{"role": r["role"], "content": r["content"]} for r in rows if r["role"] in ("user", "assistant")]
+        rows = db.get_messages(cid, limit=int(CFG.get("history_messages", 20)))
+        rows = [r for r in rows if r["role"] in ("user", "assistant")]
+        recent_ids = {r["id"] for r in [r for r in rows if r["role"] == "assistant"][-3:]}
+        for r in rows:
+            content = r["content"]
+            if r["id"] in recent_ids and r.get("steps"):  # what was actually done, so "that file" / "it" make sense
+                acts = "; ".join(f"{s.get('tool')}({_short_args(s.get('args'))}) -> {str(s.get('result', ''))[:120]}"
+                                 for s in r["steps"][:6])
+                content += f"\n\n[Actions I took for this: {acts[:900]}]"
+            history.append({"role": r["role"], "content": content})
         db.add_message(cid, "user", user_text)
     model_text = user_text
+    prev_fg0 = getattr(_ctx, "fg", False)
+    _ctx.fg = not background
     try:  # Bangla / Banglish / dialects: work out the meaning first, reply in the user's own style
         import bangla
         if bangla.needs_help(user_text):
@@ -196,9 +350,10 @@ def run_agent(user_text, conversation_id=None, background=False, save_history=No
                 extra_system = (extra_system + "\n" + lang_extra).strip()
     except Exception as e:
         log.warning("bangla helper failed: %s", e)
-    prev = current_chat()
+    prev, prev_fg = current_chat(), prev_fg0
     if cid and not background:
         _ctx.cid = cid
+    _ctx.fg = not background
     try:
         final, steps = _run(model_text, history, background, smart, on_event, extra_system, max_steps)
     except Exception as e:
@@ -207,10 +362,23 @@ def run_agent(user_text, conversation_id=None, background=False, save_history=No
             db.add_message(cid, "error", f"{e}")
         raise
     finally:
-        _ctx.cid = prev
+        _ctx.cid, _ctx.fg = prev, prev_fg
     if cid:
-        db.add_message(cid, "assistant", final, steps)
+        db.add_message(cid, "assistant", final, [s for s in steps if not s.get("check")])
+    steps = [s for s in steps if not s.get("check")]
+    if not background:
+        try:
+            import recall
+            recall.maybe_learn(user_text, final)
+        except Exception:
+            pass
     return final, steps
+
+
+def _short_args(a):
+    if not isinstance(a, dict):
+        return ""
+    return ", ".join(f"{k}={str(v)[:60]}" for k, v in list(a.items())[:3])
 
 
 def _emit(on_event, **ev):
@@ -222,10 +390,17 @@ def _emit(on_event, **ev):
 
 
 def _run(user_text, history, background, smart=False, on_event=None, extra_system="", max_steps=None):
-    if not _lock.acquire(blocking=False):
-        _emit(on_event, type="status", text="Waiting - Kakarot is finishing another job (a mission or schedule)…")
-        _lock.acquire()
+    if _lock.locked():
+        _emit(on_event, type="status", text="One moment - Kakarot is finishing a step of another job…")
+    _acquire(not background)
     _tls.inside = True
+    if not background:
+        _stop.clear()
+    try:
+        import keepalive
+        keepalive.busy(True)
+    except Exception:
+        keepalive = None
     try:
         tools.CTX["background"] = background
         note = ""
@@ -233,22 +408,69 @@ def _run(user_text, history, background, smart=False, on_event=None, extra_syste
             smart = False
             note = (f"\n\n(Smart mode needs the model {CFG.get('smart_model', 'qwen3:14b')} - run get-smart-brain.bat once. "
                     "Answered with the normal brain.)")
-        system = _system(background) + ("\n" + extra_system if extra_system else "")
-        msgs = [{"role": "system", "content": system}] + history + [{"role": "user", "content": user_text}]
+        system = _system(background)  # never changes per message -> the brain reuses its earlier work on it
+        ctx = _ctx_size(smart)
+        base = [{"role": "system", "content": system}] + history + [{"role": "user", "content": user_text}]
+        schemas = tools.schemas_for(base, ctx)  # same abilities for the whole job -> the brain can reuse its work
+        budget = ctx - int(_tok(json.dumps(schemas, ensure_ascii=False))) - (2500 if smart else 1400)
+
+        plan = []
+        try:
+            import planner
+            if not background and planner.needs_plan(user_text, smart):
+                _emit(on_event, type="status", text="Planning the steps…")
+                recent = "\n".join(f"{m['role']}: {m['content'][:300]}" for m in history[-4:])
+                plan = planner.make_plan(user_text, recent)
+                if plan:
+                    _emit(on_event, type="plan", steps=plan)
+        except Exception as e:
+            log.debug("planning skipped: %s", e)
+            planner = None
+
+        # The per-message note (time, memories, plan, language/job rules) goes INSIDE the latest user message:
+        # Ollama would move any extra system message to the very top, which would make every reply start slowly.
+        ctx_note = _note(user_text, plan) + (("\n\n" + extra_system) if extra_system else "")
+        user_msg = {"role": "user", "content": f"[Note for you, not written by the user:\n{ctx_note}]\n\n{user_text}"}
+        msgs = [{"role": "system", "content": system}] + history + [user_msg]
 
         steps, final = [], None
-        limit, n = int(max_steps or CFG.get("max_steps", 12)), 0
+        limit, n, checked, stopped = int(max_steps or CFG.get("max_steps", 12)), 0, False, False
         while n < limit:
             n += 1
+            if background:
+                _step_aside()
+            elif _stop.is_set():
+                stopped = True
+                break
             _emit(on_event, type="thinking_start")
-            m = call_model(msgs, smart, on_event)
+            msgs = _fit(msgs, budget, (user_msg,))
+            m = call_model(msgs, smart, on_event, schemas=schemas, stoppable=not background)
             calls = m.get("tool_calls") or []
             msg = {"role": "assistant", "content": m.get("content", "")}
             if calls:
                 msg["tool_calls"] = calls
             msgs.append(msg)
+            if not background and _stop.is_set():
+                final, stopped = _clean(m.get("content")), True
+                break
             if not calls:
                 final = _clean(m.get("content"))
+                # Check the work before the user sees it (only for jobs with several actions), fix once if needed
+                if (planner and not background and not checked and n < limit
+                        and planner.should_check(steps, plan)):
+                    checked = True
+                    _emit(on_event, type="status", text="Double-checking the work…")
+                    ok, problem, fixable = planner.check(user_text, plan, steps, final)
+                    steps.append({"tool": "self_check", "args": {}, "check": True,
+                                  "result": "OK" if ok else f"Found: {problem}"})
+                    if not ok and fixable and problem:
+                        _emit(on_event, type="check", ok=False, text=problem)
+                        msgs.append({"role": "user", "content": f"(Self-check before answering) Not finished yet: "
+                                                                f"{problem} Fix this now with your tools, then give "
+                                                                f"the final answer."})
+                        final = None
+                        continue
+                    _emit(on_event, type="check", ok=True, text="")
                 break
             for c in calls:
                 fn = c.get("function", {})
@@ -278,8 +500,12 @@ def _run(user_text, history, background, smart=False, on_event=None, extra_syste
                         if old.get("role") == "tool" and old.get("tool_name") == "screen_look":
                             old["content"] = "(older screen view - see the newest one)"
                 msgs.append({"role": "tool", "content": result, "tool_name": name})
+                if not background and _stop.is_set():
+                    break
             if final is not None:
                 break
+        if stopped:
+            final = ((final or "").strip() + "\n\n⏹ Stopped.").strip()
         if final is None:
             final = "I reached my step limit before finishing. Here's what I did so far - ask me to continue."
         if not final:
@@ -287,17 +513,25 @@ def _run(user_text, history, background, smart=False, on_event=None, extra_syste
         return final + note, steps
     finally:
         _tls.inside = False
+        if keepalive:
+            keepalive.busy(False)
         _lock.release()
 
 
-def think_once(prompt, system="", fmt=None, smart=False):
-    """A single answer with no tools (used for planning, summaries, learning). Waits its turn like any job,
-    unless it's called from inside a running task (then it just answers)."""
+def think_once(prompt, system="", fmt=None, smart=False, background=None):
+    """A single answer with no tools (used for planning, checking, summaries, learning). Waits its turn like any
+    job (chats first), unless it's called from inside a running task (then it just answers)."""
     msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
     if getattr(_tls, "inside", False):
         return _clean(call_model(msgs, smart=smart, use_tools=False, fmt=fmt).get("content", ""))
-    with _lock:
+    fg = getattr(_ctx, "fg", False) if background is None else not background
+    _acquire(fg)
+    _tls.inside = True
+    try:
         return _clean(call_model(msgs, smart=smart, use_tools=False, fmt=fmt).get("content", ""))
+    finally:
+        _tls.inside = False
+        _lock.release()
 
 
 def status():

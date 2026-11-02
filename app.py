@@ -37,6 +37,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)
     logging.StreamHandler(),
     logging.handlers.RotatingFileHandler(os.path.join(BASE, "data", "kakarot.log"),
                                          maxBytes=2_000_000, backupCount=2, encoding="utf-8")])
+class _QuietPolls(logging.Filter):
+    """Don't fill the log with the chat page's every-few-seconds checks."""
+    POLLS = re.compile(r'"GET /api/(pulse|approvals|screen/status|inbox|status|conversations/\d+)[ ?]')
+
+    def filter(self, record):
+        return not self.POLLS.search(record.getMessage())
+
+
+logging.getLogger("werkzeug").addFilter(_QuietPolls())
 app = Flask(__name__, static_folder=os.path.join(BASE, "static"))
 app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024  # attachments up to 40 MB
 PHONE = bool(CFG.get("phone_access", False) or CFG.get("public_access", False))
@@ -112,6 +121,27 @@ def api_chat_stream():
 
     return Response(stream_with_context(gen()), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/chat/stop")
+def api_chat_stop():
+    agent.stop()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/warmup")
+def api_warmup():
+    """The chat page calls this when it opens: the brain loads while you type."""
+    threading.Thread(target=agent.warm, daemon=True).start()
+    return jsonify({"ok": True})
+
+
+@app.get("/api/pulse")
+def api_pulse():
+    """One small check the chat page makes every few seconds."""
+    cid = request.args.get("conv", type=int)
+    last = db.q("SELECT MAX(id) AS m FROM messages WHERE conversation_id=?", (cid,))[0]["m"] if cid else None
+    return jsonify({"ok": True, "busy": agent.busy(), "conv_last": last or 0})
 
 
 @app.post("/api/upload")
@@ -527,7 +557,8 @@ def api_note_toggle(nid):
 
 @app.get("/api/memory")
 def api_memory():
-    return jsonify(db.q("SELECT * FROM memory ORDER BY id"))
+    return jsonify(db.q("SELECT id, fact, created, COALESCE(kind, 'fact') AS kind, COALESCE(auto, 0) AS auto "
+                        "FROM memory ORDER BY id"))
 
 
 @app.delete("/api/memory/<int:mid>")
@@ -541,6 +572,11 @@ if __name__ == "__main__":
     scheduler.start()
     missions.resume()
     selfupdate.startup()
+    try:
+        import keepalive
+        keepalive.start()
+    except Exception:
+        logging.exception("keepalive failed to start")
     port = int(CFG.get("port", 5050))
     url = f"http://127.0.0.1:{port}"
     name = CFG.get("name", "Kakarot")

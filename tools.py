@@ -113,10 +113,12 @@ def _group_tools(spec):
 
 def schemas_for(messages, ctx_tokens=8192):
     """Ability descriptions for this conversation: core + matching groups, then more while they fit."""
-    texts = [m.get("content") or "" for m in messages if m.get("role") == "user"][-3:]
+    # All of this chat's messages (not just the last few): the set of abilities then only grows during a chat,
+    # so the brain can reuse its earlier work and answer faster.
+    texts = [m.get("content") or "" for m in messages if m.get("role") == "user"]
     text = " ".join(texts).lower()
     used = {c["function"]["name"] for m in messages for c in (m.get("tool_calls") or []) if c.get("function")}
-    budget = int(ctx_tokens * 4 * 0.42)
+    budget = min(int(ctx_tokens * 4 * 0.42), int(CFG.get("tool_budget_chars", 12500)))
     chosen = [n for n in CORE if n in TOOLS] + [n for n in used if n in TOOLS and n not in CORE]
     size = lambda names: len(json.dumps([TOOLS[n]["schema"] for n in names]))
     groups = {g: _group_tools(spec) for g, spec, _ in GROUPS}
@@ -134,7 +136,11 @@ def schemas_for(messages, ctx_tokens=8192):
     for n in TOOLS:
         if n not in chosen and size(chosen + [n]) <= budget:
             chosen.append(n)
-    return [TOOLS[n]["schema"] for n in chosen]
+    # fixed order (core first, then as registered), whatever order they were picked in
+    core = [n for n in CORE if n in chosen]
+    order = {n: i for i, n in enumerate(TOOLS)}
+    rest = sorted((n for n in chosen if n not in core), key=lambda n: order.get(n, 1e9))
+    return [TOOLS[n]["schema"] for n in core + rest]
 
 
 def execute(name, args):
@@ -425,10 +431,14 @@ def lalsobuj_route_trips(origin, destination, date="today"):
 
 # ---------------------------------------------------------------- memory & notes
 @tool("remember", "Save a long-term fact about the user or their preferences (it will be remembered forever).",
-      {"fact": S("The fact, e.g. 'User's office starts at 9am'.")})
-def remember(fact):
-    db.x("INSERT INTO memory(fact, created) VALUES(?,?)", (fact, db.now()))
-    return "Remembered."
+      {"fact": S("The fact, e.g. 'User's office starts at 9am'."),
+       "kind": S("'preference' (how they want you to work/reply), 'person', 'project' or 'fact'.")},
+      ["fact"])
+def remember(fact, kind="fact"):
+    import recall
+    if recall.SECRET.search(fact or ""):
+        return "Not saved: I never store passwords, PINs, codes or card/account numbers."
+    return "Remembered." if recall.add(fact, kind) else "I already knew that."
 
 
 @tool("forget", "Delete a remembered fact by its id.", {"fact_id": I("Id from list_memory.")})

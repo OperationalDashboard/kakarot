@@ -266,7 +266,43 @@ Power → Screen and sleep → set "When plugged in, put my device to sleep afte
 
 ## Start automatically with Windows
 
-Double-click **`add-to-startup.bat`** once. To undo it, run **`remove-from-startup.bat`**.
+Kakarot adds itself to Windows startup (minimized) the first time it runs from `start.bat`. To stop that, run
+**`remove-from-startup.bat`**; `add-to-startup.bat` turns it back on.
+
+## Smooth and always there
+
+- **Fast replies.** The brain stays loaded (`keep_model_loaded`, 4 hours) and is warmed up when Kakarot starts and
+  when you open the chat page. Its fixed instructions stay the same from message to message, so it doesn't re-read
+  them each time - answers start much sooner.
+- **Chats go first.** If a mission or schedule is running, it steps aside between its steps so your chat is
+  answered right away.
+- **Stop button.** While Kakarot works, Send turns into ■ Stop.
+- **Nicer chat page.** Replies show headings, bold, lists, tables and code; Copy button; it only scrolls down when
+  you're at the bottom ("↓ New messages" otherwise); the typing box grows as you write.
+- **Never loses a reply.** If the connection drops, the page shows "Reconnecting…", and the answer appears by
+  itself when it's ready.
+- **Stays awake.** While Kakarot works - and all the time when the PC is plugged in - it keeps Windows from going
+  to sleep (the screen still turns off), so your phone can always reach it. `keep_pc_awake`: `plugged_in`,
+  `always`, `while_working` or `never`.
+- **Restarts the brain's engine.** If Ollama stops, Kakarot starts it again.
+
+## Understands you better and remembers by itself
+
+- Remembers lasting things you tell it - how you like replies, your people, your projects - without being asked
+  (marked ✨ in the Memory tab, where you can delete anything). It never saves passwords, PINs, codes or
+  card/account numbers. `auto_memory: false` turns it off.
+- For each message it brings up only the memories that matter, so the conversation itself fits in its memory.
+- Knows what it did earlier in the chat ("that file", "do the same for Chittagong" work).
+- Long chats are shortened smartly - your current request and its instructions are never cut.
+- Doesn't ask needless questions: it picks the most likely meaning and says what it assumed. It still asks before
+  anything that deletes, sends, publishes or pays.
+
+## Plans and checks its work
+
+For requests with several parts it first writes a short **plan** (shown in the chat) and follows it. When a job
+took several actions, it **double-checks** the result against what you asked and what its tools really returned -
+if something is missing or not really done, it goes back and fixes it before answering. `plan_and_check: false`
+turns this off.
 
 ## Settings — `config.json`
 
