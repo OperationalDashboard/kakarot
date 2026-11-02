@@ -28,7 +28,9 @@ EXTRACT = """Read what the user just told their personal assistant and pick out 
 future chats. Lasting = still true next month: how they want the assistant to behave or reply (kind "preference"),
 people in their life and who they are (kind "person"), their businesses / websites / projects (kind "project"),
 other stable facts about them (kind "fact": job, city, routine, tools they use).
-NOT lasting: today's task, one-off requests, questions, moods, anything the assistant said.
+NOT lasting: today's task, one-off requests, questions, moods, trips or plans for a certain day, anything the
+assistant said. Examples - "I'm going to Noakhali tomorrow" -> nothing. "Make my replies short" -> preference.
+"My brother Rafi handles the Chittagong counter" -> person. When unsure, leave it out.
 NEVER include passwords, PINs, codes, card/account/ID numbers.
 Write each fact as a short third-person sentence in English ("User's office starts at 9am").
 Skip facts already known:
@@ -80,6 +82,10 @@ def all_facts():
         return db.q("SELECT id, fact, COALESCE(kind,'fact') AS kind, emb FROM memory ORDER BY id")
     except Exception:
         return db.q("SELECT id, fact, 'fact' AS kind, NULL AS emb FROM memory ORDER BY id")
+
+
+TEMPORARY = re.compile(r"\b(today|tomorrow|tonight|yesterday|this (week|month|morning|evening)|next (week|month)|"
+                       r"is (traveling|travelling|going|visiting|planning)|will (go|travel|visit)|currently)\b", re.I)
 
 
 def add(fact, kind="fact", auto=False):
@@ -164,7 +170,7 @@ def _learn(text):
         data = json.loads(raw or "{}")
         saved = []
         for f in (data.get("facts") or [])[:3]:
-            if isinstance(f, dict) and f.get("text"):
+            if isinstance(f, dict) and f.get("text") and not TEMPORARY.search(str(f["text"])):
                 if add(str(f["text"]), str(f.get("kind", "fact")).lower(), auto=True):
                     saved.append(f["text"])
         if saved:
