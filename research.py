@@ -107,7 +107,8 @@ def _smart_ok():
     if not CFG.get("research_smart", True):
         return False
     try:
-        return agent._has(CFG.get("smart_model", "qwen3:14b"), agent.installed_models())
+        # the big brain only when it fits the graphics card - otherwise swapping brains makes research much slower
+        return agent._has(CFG.get("smart_model", "qwen3:14b"), agent.installed_models()) and not agent.smart_slow()
     except Exception:
         return False
 

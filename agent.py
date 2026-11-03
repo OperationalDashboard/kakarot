@@ -225,6 +225,10 @@ def warm():
                 "options": {"num_ctx": ctx, "temperature": 0.3, "num_predict": 1}}
         requests.post(CFG["ollama_url"].rstrip("/") + "/api/chat", json=body, timeout=600)
         _warm["at"] = time.time()
+        if check_fit():  # reload once with a memory size that fits on the graphics card
+            body["options"]["num_ctx"] = _ctx_size()
+            body["tools"] = tools.schemas_for(msgs, _ctx_size())
+            requests.post(CFG["ollama_url"].rstrip("/") + "/api/chat", json=body, timeout=600)
         return True
     except Exception as e:
         log.debug("warm-up failed: %s", e)
@@ -260,7 +264,59 @@ def _has(name, names):
 def _ctx_size(smart=False):
     if smart:
         return int(CFG.get("smart_context_tokens", 12288))
-    return int(CFG.get("context_tokens", 12288))
+    want = int(CFG.get("context_tokens", 12288))
+    try:
+        fit = db.get_kv(f"fit_ctx:{CFG['model']}:{want}")
+        return min(want, int(fit)) if fit else want
+    except Exception:
+        return want
+
+
+def loaded_models():
+    """What Ollama has in memory now: {name: (total bytes, bytes on the graphics card)}."""
+    try:
+        r = requests.get(CFG["ollama_url"].rstrip("/") + "/api/ps", timeout=5)
+        return {m["name"]: (int(m.get("size") or 0), int(m.get("size_vram") or 0)) for m in r.json().get("models", [])}
+    except Exception:
+        return {}
+
+
+def _on_gpu(name):
+    """1.0 = all of the brain is on the graphics card (fast); 0.5 = half runs on the processor (slow);
+    None = unknown / no graphics card in use."""
+    for n, (size, vram) in loaded_models().items():
+        if n == name or n == f"{name}:latest":
+            return (vram / size) if size and vram else None
+    return None
+
+
+def check_fit():
+    """If part of the normal brain had to run on the (much slower) processor, give it a smaller short-term memory
+    so it fits on the graphics card completely. Remembered, so it's done once."""
+    share = _on_gpu(CFG["model"])
+    if share is None or share >= 0.97:
+        return False
+    want = int(CFG.get("context_tokens", 12288))
+    cur = _ctx_size()
+    smaller = 8192 if cur > 8192 else 6144 if cur > 6144 else None
+    if not smaller:
+        return False
+    db.set_kv(f"fit_ctx:{CFG['model']}:{want}", str(smaller))
+    log.warning("the brain didn't fit on the graphics card (%.0f%% on it) - using %s tokens of memory instead of %s",
+                share * 100, smaller, cur)
+    return True
+
+
+def smart_slow():
+    """True when the Smart brain only partly fits on the graphics card (then it is several times slower)."""
+    v = db.get_kv("smart_gpu_share")
+    return v is not None and float(v) < 0.97
+
+
+def _note_smart_fit():
+    share = _on_gpu(CFG.get("smart_model", "qwen3:14b"))
+    if share is not None:
+        db.set_kv("smart_gpu_share", f"{share:.2f}")
 
 
 def call_model(messages, smart=False, on_event=None, use_tools=True, fmt=None, schemas=None, stoppable=False):
@@ -504,6 +560,11 @@ def _run(user_text, history, background, smart=False, on_event=None, extra_syste
                     break
             if final is not None:
                 break
+        if smart:
+            try:
+                _note_smart_fit()
+            except Exception:
+                pass
         if stopped:
             final = ((final or "").strip() + "\n\n⏹ Stopped.").strip()
         if final is None:

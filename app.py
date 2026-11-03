@@ -63,6 +63,7 @@ def api_status():
     smart = CFG.get("smart_model", "qwen3:14b")
     return jsonify({**agent.status(), "name": CFG.get("name", "Kakarot"), "folders": CFG["allowed_folders"],
                     "smart_model": smart, "smart_ready": agent._has(smart, agent.installed_models()),
+                    "smart_slow": agent.smart_slow(),
                     "remote": not auth.is_trusted_local()})
 
 
