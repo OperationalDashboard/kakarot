@@ -143,6 +143,7 @@
   .plan ol{margin:4px 0 0;padding-left:20px} .plan li{padding:1px 0} .plan.fin li{color:var(--accent)} .plan.fin li::marker{content:"✓ "}
   #net{display:none;position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:50;background:#1d2320;color:#fff;border-radius:20px;padding:6px 14px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.25)}
   #net.on{display:block}
+  .toast{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:50;background:#1d2320;color:#fff;border-radius:14px;padding:8px 14px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.25)}
   #down{display:none;position:absolute;right:22px;bottom:84px;z-index:6;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:20px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.12)}
   #down.on{display:block}
   main{position:relative} #chat{scroll-behavior:auto;overscroll-behavior:contain}
@@ -363,14 +364,17 @@ async function send(e){
     if(!got){ think("The connection dropped, but Kakarot keeps working - the answer will appear here by itself"); pendingWait = wait; }
   }finally{
     clearInterval(ap); checkApprovals(); working = false; paintSend();
+    if(smart){ smart = false; paintSmart(); }
     if(pendingWait) syncChat(); else syncChat(true);
     renderSide(); if(window.innerWidth > 800) $("#t").focus();
   }
 }
 $("#f").onsubmit = send;
-let smart = store.get("kakarot_smart") === "1";
-function paintSmart(){ $("#smart").classList.toggle("on", smart); }
-$("#smart").onclick = () => { smart = !smart; store.set("kakarot_smart", smart ? "1" : null); paintSmart(); };
+// Smart = the bigger, slower brain for ONE hard message; it switches itself off after that reply
+let smart = false, smartSlow = false; store.set("kakarot_smart", null);
+function paintSmart(){ $("#smart").classList.toggle("on", smart); $("#smart").title = smart ? "Smart is on for your next message only" + (smartSlow ? " - it is slow on this PC (several minutes)" : "") : "Smart: bigger brain for one hard message (slower)"; }
+$("#smart").onclick = () => { smart = !smart; paintSmart(); if(smart && smartSlow) toast("🧠 Smart is on for the next message. On this PC it can take several minutes - use it only for hard jobs."); };
+function toast(t){ const n = document.createElement("div"); n.className = "toast"; n.textContent = t; n.style.maxWidth = "90vw"; n.style.textAlign = "center"; document.body.append(n); setTimeout(() => n.remove(), 4200); }
 paintSmart();
 function publishCard(t, reason){
   const files = t.files || [];
@@ -685,6 +689,7 @@ function warmup(){ if(Date.now() - lastWarm < 600000) return; lastWarm = Date.no
   if(st){
     $("#name").textContent = st.name;
     $("#status").textContent = st.model_ready ? `● ${st.model} ready` : st.hint;
+    smartSlow = !!st.smart_slow; paintSmart();
     if(!st.smart_ready) $("#smart").title = `Smart mode needs ${st.smart_model}: run get-smart-brain.bat once`;
     $("#status").className = st.model_ready ? "" : "bad";
   }
